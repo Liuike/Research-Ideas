@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-/users/ezhan153/random-idea-1}"
 BOOTSTRAP_DIR="${PROJECT_ROOT}/.uv-bootstrap"
 UV_VERSION="0.12.11"
 

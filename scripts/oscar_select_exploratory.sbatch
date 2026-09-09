@@ -10,7 +10,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}}"
 SCOUT_CONFIG="${SCOUT_CONFIG:-configs/exploratory/lr_scout_2xl40s.yaml}"
 SCOUT_GROUP="${SCOUT_GROUP:-exploratory-2xl40s-lr-scout-v1}"
 RECIPE_FILE="${RECIPE_FILE:-plans/exploratory-recipes.json}"

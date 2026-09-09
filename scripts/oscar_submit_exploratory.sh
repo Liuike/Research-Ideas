@@ -3,7 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-/users/ezhan153/random-idea-1}"
+export PROJECT_ROOT
 WAVE1_PLAN="${WAVE1_PLAN:-plans/exploratory-wave1.jsonl}"
 WAVE2_PLAN="${WAVE2_PLAN:-plans/exploratory-wave2.jsonl}"
 SMOKE_ARRAY="0-7%2"

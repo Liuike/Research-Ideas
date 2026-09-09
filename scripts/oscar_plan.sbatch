@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}}"
 PLAN_FILE="${1:?Pass a JSONL plan created with experiment plan --plan-file}"
 TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
 PLAN_LINE="$((TASK_ID + 1))"
