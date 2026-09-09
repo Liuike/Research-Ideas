@@ -11,3 +11,5 @@ __pycache__/
 data/
 plans/
 wandb/
+.slurm-*.out
+.slurm-*.err
