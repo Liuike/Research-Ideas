@@ -17,9 +17,12 @@ PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 PLAN_FILE="${1:?Pass a JSONL plan created with experiment plan --plan-file}"
 TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
 PLAN_LINE="$((TASK_ID + 1))"
-UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+UV_BIN="${UV_BIN:-}"
 if [[ -z "${UV_BIN}" && -x "${PROJECT_ROOT}/.uv-bootstrap/bin/uv" ]]; then
   UV_BIN="${PROJECT_ROOT}/.uv-bootstrap/bin/uv"
+fi
+if [[ -z "${UV_BIN}" ]]; then
+  UV_BIN="$(command -v uv || true)"
 fi
 
 cd "${PROJECT_ROOT}"

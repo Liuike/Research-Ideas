@@ -10,9 +10,12 @@ SMOKE_ARRAY="0-7%2"
 EXPLORATORY_ARRAY="8-61%2"
 WAVE2_ARRAY="0-31%2"
 PHASE="${1:-}"
-UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+UV_BIN="${UV_BIN:-}"
 if [[ -z "${UV_BIN}" && -x "${PROJECT_ROOT}/.uv-bootstrap/bin/uv" ]]; then
   UV_BIN="${PROJECT_ROOT}/.uv-bootstrap/bin/uv"
+fi
+if [[ -z "${UV_BIN}" ]]; then
+  UV_BIN="$(command -v uv || true)"
 fi
 
 if [[ "${PHASE}" != "smoke" && "${PHASE}" != "exploratory" ]]; then

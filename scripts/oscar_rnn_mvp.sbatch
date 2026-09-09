@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --time=24:00:00
-#SBATCH --array=0-199
+#SBATCH --array=0-199%2
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null
 
@@ -14,9 +14,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+UV_BIN="${UV_BIN:-}"
 if [[ -z "${UV_BIN}" && -x "${PROJECT_ROOT}/.uv-bootstrap/bin/uv" ]]; then
   UV_BIN="${PROJECT_ROOT}/.uv-bootstrap/bin/uv"
+fi
+if [[ -z "${UV_BIN}" ]]; then
+  UV_BIN="$(command -v uv || true)"
 fi
 if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
   echo "uv is unavailable; provision the locked Oscar environment first" >&2

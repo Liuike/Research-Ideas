@@ -15,9 +15,12 @@ SCOUT_CONFIG="${SCOUT_CONFIG:-configs/exploratory/lr_scout_2xl40s.yaml}"
 SCOUT_GROUP="${SCOUT_GROUP:-exploratory-2xl40s-lr-scout-v1}"
 RECIPE_FILE="${RECIPE_FILE:-plans/exploratory-recipes.json}"
 BOUNDARY_PLAN="${BOUNDARY_PLAN:-plans/exploratory-wave2.jsonl}"
-UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+UV_BIN="${UV_BIN:-}"
 if [[ -z "${UV_BIN}" && -x "${PROJECT_ROOT}/.uv-bootstrap/bin/uv" ]]; then
   UV_BIN="${PROJECT_ROOT}/.uv-bootstrap/bin/uv"
+fi
+if [[ -z "${UV_BIN}" ]]; then
+  UV_BIN="$(command -v uv || true)"
 fi
 
 if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then

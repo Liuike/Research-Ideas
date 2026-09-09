@@ -125,6 +125,8 @@ def test_oscar_submitter_separates_smoke_and_caps_gpu_arrays():
     assert "#SBATCH --gres=gpu:1" in runner
     assert "#SBATCH --constraint=l40s" in runner
     assert 'done < ".secrets/env"' not in runner
+    assert "#SBATCH --array=0-159%2" in Path("scripts/oscar_mlp_mvp.sbatch").read_text()
+    assert "#SBATCH --array=0-199%2" in Path("scripts/oscar_rnn_mvp.sbatch").read_text()
 
 
 def test_duplicate_finished_condition_ids_are_rejected():
