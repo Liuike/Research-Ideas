@@ -1,0 +1,41 @@
+regime: calibration
+stage: exploratory
+run_group: exploratory-2xl40s-lr-scout-v1
+optimizers: [adam_o, muon_o, rsgd, mm]
+trials_per_optimizer: 3
+sampler: log_uniform
+freeze_after_selection: true
+primary_weight_decay: 0.0
+aux_learning_rate: 0.001
+seed: 0
+data_seed: 0
+device: cuda
+schedule: constant
+precision: fp32
+mlp:
+  dataset: shapeset
+  activation: logistic
+  depths: [8]
+  width: 256
+  steps: 1500
+  batch_size: 128
+  success_loss: 0.20
+  success_accuracy: 0.95
+  learning_rate_ranges:
+    adam: [1.0e-4, 1.0e-2]
+    muon: [1.0e-4, 1.0e-2]
+    rsgd: [1.0e-4, 1.0e-2]
+    mm: [1.0e-4, 1.0e-2]
+rnn:
+  task: latch
+  hidden_size: 64
+  max_lengths: [100]
+  steps: 2500
+  batch_size: 128
+  success_loss: 0.10
+  success_accuracy: 0.95
+  learning_rate_ranges:
+    adam: [1.0e-4, 1.0e-2]
+    muon: [1.0e-4, 1.0e-2]
+    rsgd: [1.0e-4, 1.0e-2]
+    mm: [1.0e-4, 1.0e-2]

@@ -1,0 +1,16 @@
+track: rnn
+task: latch
+hidden_sizes: [64]
+max_lengths: [50, 100, 200, 500, 1000]
+optimizers: [adam_o, muon_o, rsgd, mm]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+steps: 20000
+batch_size: 128
+learning_rate: 0.001
+aux_learning_rate: 0.001
+weight_decay: 0.0
+schedule: constant
+precision: fp32
+success_loss: 0.10
+success_accuracy: 0.95
+

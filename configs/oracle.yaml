@@ -1,0 +1,30 @@
+regime: oracle
+trials_per_optimizer: 16
+sampler: log_uniform
+optimizers: [sgd_x, sgd_o, adam_x, adam_o, muon_x, muon_o, rsgd, mm]
+learning_rate_ranges:
+  sgd: [1.0e-5, 1.0]
+  adam: [1.0e-5, 1.0e-2]
+  muon: [1.0e-4, 1.0e-1]
+  rsgd: [1.0e-5, 1.0e-1]
+  mm: [1.0e-5, 1.0e-1]
+mlp:
+  datasets: [shapeset, mnist]
+  activations: [logistic, tanh]
+  depths: [1, 2, 3, 4, 5, 8, 16, 32, 64]
+  width: 1000
+  steps: 10000
+  batch_size: 128
+  success_loss: 0.20
+  success_accuracy: 0.95
+rnn:
+  tasks: [latch, two_sequence, parity]
+  hidden_sizes: [16, 64, 256]
+  max_lengths: [10, 20, 50, 100, 200, 500, 1000, 2000]
+  steps: 20000
+  batch_size: 128
+  success_loss: 0.10
+  success_accuracy: 0.95
+weight_decay: 0.0
+schedule: constant
+precision: fp32

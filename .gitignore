@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-*/
+.cache/
+*.egg-info/
+.venv/
+.env
+.secrets/
+data/
+plans/
+wandb/

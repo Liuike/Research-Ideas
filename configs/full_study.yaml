@@ -1,0 +1,41 @@
+protocol_version: 1
+seeds:
+  image: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  synthetic_rnn: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+optimizers: [sgd_x, sgd_o, adam_x, adam_o, muon_x, muon_o, rsgd, mm]
+primary:
+  weight_decay: 0.0
+  schedule: constant
+  precision: fp32
+  gradient_clipping: false
+mlp:
+  datasets: [shapeset, mnist, cifar10]
+  activations: [logistic, tanh]
+  depths: [1, 2, 3, 4, 5, 8, 16, 32, 64]
+  width: 1000
+  steps: 10000
+  batch_size: 128
+  success_loss: 0.20
+  success_accuracy: 0.95
+  assignment: primary
+  secondary:
+    standard_muon_assignment: true
+    scaled_stiefel_logistic: [1, 2, 4]
+rnn:
+  tasks: [latch, two_sequence, parity]
+  historical_hidden_sizes: [1, 5]
+  matrix_hidden_sizes: [16, 64, 256]
+  max_lengths: [10, 20, 50, 100, 200, 500, 1000, 2000]
+  assignment: primary
+  full_bptt: true
+  variable_length_fraction: [0.5, 1.0]
+  steps: 20000
+  batch_size: 128
+  success_loss: 0.10
+  success_accuracy: 0.95
+  secondary:
+    standard_muon_assignment: true
+statistics:
+  boundaries: [50, 80]
+  bootstrap_samples: 2000
+  confidence_level: 0.95

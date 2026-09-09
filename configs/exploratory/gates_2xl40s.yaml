@@ -1,0 +1,47 @@
+regime: reproduction
+stage: exploratory
+run_group: exploratory-2xl40s-tests-v1
+device: cuda
+gate_a:
+  dataset: shapeset
+  activation: logistic
+  optimizer: sgd_x
+  depths: [1, 4, 8]
+  width: 256
+  min_seeds_per_depth: 2
+  seeds: [0, 1]
+  steps: 1000
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.0
+  require_accuracy_decrease: true
+  require_saturation_nondecrease: true
+gate_b:
+  optimizer: bptt_sgd
+  tasks: [latch, two_sequence, parity]
+  max_lengths: [10, 100, 500]
+  min_seeds_per_length: 2
+  seeds: [0, 1]
+  hidden_sizes:
+    latch: 1
+    two_sequence: 5
+    parity: 5
+  steps: 1000
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.0
+  minimum_accuracy_drop: 0.10
+gate_c:
+  optimizers: [rsgd, mm, scaled_mm]
+  manifold_scales:
+    scaled_mm: 2.0
+  maximum_residual: 1.0e-4
+  require_at_least_one_run: true
+  task: latch
+  hidden_size: 64
+  max_length: 50
+  seeds: [0, 1]
+  steps: 500
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0

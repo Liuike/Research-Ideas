@@ -1,0 +1,17 @@
+track: rnn
+stage: engineering-smoke
+run_group: exploratory-2xl40s-smoke-v1
+recipe_version: engineering-smoke-v1
+task: latch
+hidden_sizes: [16]
+max_lengths: [20]
+optimizers: [adam_o, muon_o, rsgd, mm]
+seeds: [0]
+steps: 25
+batch_size: 32
+learning_rate: 0.001
+aux_learning_rate: 0.001
+weight_decay: 0.0
+device: cuda
+success_loss: 0.10
+success_accuracy: 0.95

@@ -1,0 +1,37 @@
+regime: reproduction
+gate_a:
+  dataset: shapeset
+  activation: logistic
+  optimizer: sgd_x
+  depths: [4, 5]
+  min_seeds_per_depth: 5
+  seeds: [0, 1, 2, 3, 4]
+  steps: 10000
+  batch_size: 128
+  require_accuracy_decrease: true
+  require_saturation_nondecrease: true
+gate_b:
+  optimizer: bptt_sgd
+  tasks: [latch, two_sequence, parity]
+  max_lengths: [10, 200, 2000]
+  min_seeds_per_length: 20
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+  hidden_sizes:
+    latch: 1
+    two_sequence: 5
+    parity: 5
+  steps: 20000
+  batch_size: 128
+  minimum_accuracy_drop: 0.10
+gate_c:
+  optimizers: [rsgd, mm, scaled_mm]
+  manifold_scales:
+    scaled_mm: 2.0
+  maximum_residual: 1.0e-4
+  require_at_least_one_run: true
+  task: latch
+  hidden_size: 64
+  max_length: 50
+  seeds: [0, 1, 2, 3, 4]
+  steps: 1000
+  batch_size: 64
