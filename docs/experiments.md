@@ -41,8 +41,8 @@ W&B.
 
 ## Current protocol notes
 
-- Manifold Muon's dual ascent uses at most 10 iterations and fails closed if the
-  tangent tolerance is not reached.
+- Manifold Muon's dual ascent always uses exactly 10 iterations. The final
+  tangent residual is retained as a diagnostic rather than an abort condition.
 - Primary comparisons use constant learning rate, FP32, zero weight decay, no
   AMP, and no gradient clipping.
 - W&B credentials and project identity come from `.secrets/env`; secret values

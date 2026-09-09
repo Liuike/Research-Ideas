@@ -24,20 +24,34 @@ def test_manifold_muon_preserves_constraint():
 def test_manifold_muon_uses_ten_dual_iterations_by_default():
     parameter = torch.nn.Parameter(torch.eye(4))
     optimizer = ManifoldMuon([parameter])
+    parameter.grad = torch.randn_like(parameter)
+    optimizer.step()
 
     assert optimizer.max_iterations == 10
+    assert optimizer.state[parameter]["inner_iterations"] == 10
 
 
-def test_manifold_muon_fails_closed_on_unconverged_dual_solve():
+def test_manifold_muon_records_unconverged_residual_without_aborting():
     parameter = torch.nn.Parameter(retract_stiefel(torch.randn(8, 5, generator=torch.Generator().manual_seed(0))))
-    optimizer = ManifoldMuon([parameter], lr=0.02, max_iterations=1, tolerance=1e-12)
+    optimizer = ManifoldMuon([parameter], lr=0.02, max_iterations=1)
     parameter.grad = torch.randn(8, 5, generator=torch.Generator().manual_seed(1))
-    try:
-        optimizer.step()
-    except RuntimeError as error:
-        assert "failed to reach tangent tolerance" in str(error)
-    else:
-        raise AssertionError("unconverged dual solve must not be applied")
+    optimizer.step()
+
+    assert optimizer.state[parameter]["inner_iterations"] == 1
+    assert optimizer.state[parameter]["tangent_residual"] > 1e-6
+    assert stiefel_residual(parameter) < 1e-5
+
+
+def test_manifold_muon_handles_exploratory_matrix_size():
+    generator = torch.Generator().manual_seed(7)
+    parameter = torch.nn.Parameter(retract_stiefel(torch.randn(64, 64, generator=generator)))
+    optimizer = ManifoldMuon([parameter], lr=0.001)
+    parameter.grad = torch.randn(64, 64, generator=generator)
+    optimizer.step()
+
+    assert optimizer.state[parameter]["inner_iterations"] == 10
+    assert torch.isfinite(parameter).all()
+    assert stiefel_residual(parameter) < 1e-5
 
 
 def test_riemannian_sgd_preserves_constraint():
