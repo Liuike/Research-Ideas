@@ -124,9 +124,21 @@ def test_oscar_submitter_separates_smoke_and_caps_gpu_arrays():
     assert 'SMOKE_VERIFIED:-0' in submitter
     assert "#SBATCH --gres=gpu:1" in runner
     assert "#SBATCH --constraint=l40s" in runner
-    assert "#SBATCH --output=.slurm-%x-%A_%a.out" in runner
-    assert "#SBATCH --error=.slurm-%x-%A_%a.err" in runner
+    assert "#SBATCH --output=logs/slurm/%x-%A_%a.out" in runner
+    assert "#SBATCH --error=logs/slurm/%x-%A_%a.err" in runner
     assert "/dev/null" not in runner
+    assert Path("logs/slurm/README.md").is_file()
+    assert "mkdir -p logs/slurm" in submitter
+    for script_path in (
+        "scripts/oscar_plan.sbatch",
+        "scripts/oscar_select_exploratory.sbatch",
+        "scripts/oscar_mlp_mvp.sbatch",
+        "scripts/oscar_rnn_mvp.sbatch",
+    ):
+        script = Path(script_path).read_text()
+        assert "#SBATCH --output=logs/slurm/" in script
+        assert "#SBATCH --error=logs/slurm/" in script
+        assert "/dev/null" not in script
     assert "SLURM_SUBMIT_DIR" in runner
     assert 'PROJECT_ROOT="${PROJECT_ROOT:-/users/ezhan153/random-idea-1}"' in submitter
     assert 'done < ".secrets/env"' not in runner

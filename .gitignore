@@ -13,3 +13,5 @@ plans/
 wandb/
 .slurm-*.out
 .slurm-*.err
+logs/slurm/*
+!logs/slurm/README.md

@@ -25,6 +25,7 @@ if [[ "${PHASE}" != "smoke" && "${PHASE}" != "exploratory" ]]; then
 fi
 
 cd "${PROJECT_ROOT}"
+mkdir -p logs/slurm
 unset LD_LIBRARY_PATH
 unset VIRTUAL_ENV
 if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then

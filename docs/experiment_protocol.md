@@ -52,9 +52,9 @@ the repository has a clean committed revision.
 
 After connecting, sync the repository, create/activate the environment, run
 `bash -n`, representative `DRY_RUN=1` tasks, `sbatch --test-only`, and only then
-submit the arrays. Slurm retains ignored per-task `.slurm-*.out` and
-`.slurm-*.err` files in the Oscar project root for failure diagnosis; experiment
-metrics and reproducibility metadata remain in W&B.
+submit the arrays. Slurm retains ignored per-task stdout and stderr files under
+`logs/slurm/` in the Oscar project root for failure diagnosis; experiment metrics
+and reproducibility metadata remain in W&B.
 
 The Oscar MVP scripts accept optimizer-specific frozen recipes via
 `LR_ADAM_O`, `LR_MUON_O`, `LR_RSGD`, and `LR_MM`. Before a fixed-recipe sweep,
