@@ -5,6 +5,7 @@ __pycache__/
 .cache/
 *.egg-info/
 .venv/
+.uv-bootstrap/
 .env
 .secrets/
 data/

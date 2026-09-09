@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=resurrect-select
+#SBATCH --partition=batch
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
 #SBATCH --time=00:30:00
@@ -14,15 +15,24 @@ SCOUT_CONFIG="${SCOUT_CONFIG:-configs/exploratory/lr_scout_2xl40s.yaml}"
 SCOUT_GROUP="${SCOUT_GROUP:-exploratory-2xl40s-lr-scout-v1}"
 RECIPE_FILE="${RECIPE_FILE:-plans/exploratory-recipes.json}"
 BOUNDARY_PLAN="${BOUNDARY_PLAN:-plans/exploratory-wave2.jsonl}"
+UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+if [[ -z "${UV_BIN}" && -x "${PROJECT_ROOT}/.uv-bootstrap/bin/uv" ]]; then
+  UV_BIN="${PROJECT_ROOT}/.uv-bootstrap/bin/uv"
+fi
+
+if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
+  echo "uv is unavailable; provision the locked Oscar environment first" >&2
+  exit 1
+fi
 
 SELECT_COMMAND=(
-  python -m optimizer_resurrection.experiment select-recipes
+  "${UV_BIN}" run --frozen --no-sync python -m optimizer_resurrection.experiment select-recipes
   --config "${SCOUT_CONFIG}"
   --run-group "${SCOUT_GROUP}"
   --output "${RECIPE_FILE}"
 )
 PLAN_COMMAND=(
-  python -m optimizer_resurrection.experiment plan
+  "${UV_BIN}" run --frozen --no-sync python -m optimizer_resurrection.experiment plan
   configs/exploratory/boundary_mlp_2xl40s.yaml
   configs/exploratory/boundary_rnn_2xl40s.yaml
   --recipes "${RECIPE_FILE}"
@@ -45,13 +55,6 @@ fi
 cd "${PROJECT_ROOT}"
 unset LD_LIBRARY_PATH
 unset VIRTUAL_ENV
-if [[ -f ".secrets/env" ]]; then
-  while IFS='=' read -r key value; do
-    [[ -z "${key}" || "${key}" == \#* || -z "${value}" ]] && continue
-    if [[ -z "${!key:-}" ]]; then printf -v "${key}" '%s' "${value}"; export "${key}"; fi
-  done < ".secrets/env"
-fi
-source "${VENV_ACTIVATE:-.venv/bin/activate}"
 export PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 mkdir -p "$(dirname -- "${RECIPE_FILE}")"
 "${SELECT_COMMAND[@]}"

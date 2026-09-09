@@ -2,6 +2,7 @@
 #SBATCH --job-name=resurrect-rnn
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=l40s
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --time=24:00:00
@@ -13,6 +14,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+if [[ -z "${UV_BIN}" && -x "${PROJECT_ROOT}/.uv-bootstrap/bin/uv" ]]; then
+  UV_BIN="${PROJECT_ROOT}/.uv-bootstrap/bin/uv"
+fi
+if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
+  echo "uv is unavailable; provision the locked Oscar environment first" >&2
+  exit 1
+fi
 TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
 OPTIMIZERS=(adam_o muon_o rsgd mm)
 LENGTHS=(50 100 200 500 1000)
@@ -35,7 +44,7 @@ AUX_LEARNING_RATE="${AUX_LEARNING_RATE:-0.001}"
 LOG_GROUP="${LOG_GROUP:-rnn-latch-mvp-pilot}"
 RUN_NAME="latch__length${MAX_LENGTH}__hidden${HIDDEN_SIZE}__${OPTIMIZER}__seed${SEED}__lr-${LEARNING_RATE}"
 COMMAND=(
-  python -m optimizer_resurrection.train
+  "${UV_BIN}" run --frozen --no-sync python -m optimizer_resurrection.train
   --track rnn --task latch --hidden-size "${HIDDEN_SIZE}"
   --max-length "${MAX_LENGTH}" --optimizer "${OPTIMIZER}"
   --seed "${SEED}" --data-seed "${SEED}" --steps "${STEPS}"
@@ -64,12 +73,5 @@ fi
 cd "${PROJECT_ROOT}"
 unset LD_LIBRARY_PATH
 unset VIRTUAL_ENV
-if [[ -f ".secrets/env" ]]; then
-  while IFS='=' read -r key value; do
-    [[ -z "${key}" || "${key}" == \#* || -z "${value}" ]] && continue
-    if [[ -z "${!key:-}" ]]; then printf -v "${key}" '%s' "${value}"; export "${key}"; fi
-  done < ".secrets/env"
-fi
-source "${VENV_ACTIVATE:-.venv/bin/activate}"
 export PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 "${COMMAND[@]}"

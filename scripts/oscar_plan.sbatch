@@ -2,6 +2,7 @@
 #SBATCH --job-name=resurrection-plan
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=l40s
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --time=24:00:00
@@ -16,13 +17,25 @@ PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 PLAN_FILE="${1:?Pass a JSONL plan created with experiment plan --plan-file}"
 TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
 PLAN_LINE="$((TASK_ID + 1))"
+UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+if [[ -z "${UV_BIN}" && -x "${PROJECT_ROOT}/.uv-bootstrap/bin/uv" ]]; then
+  UV_BIN="${PROJECT_ROOT}/.uv-bootstrap/bin/uv"
+fi
+
+cd "${PROJECT_ROOT}"
+unset LD_LIBRARY_PATH
+unset VIRTUAL_ENV
+if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
+  echo "uv is unavailable; provision the locked Oscar environment first" >&2
+  exit 1
+fi
 
 if [[ ! -f "${PLAN_FILE}" ]]; then
   echo "Plan file not found: ${PLAN_FILE}" >&2
   exit 1
 fi
 
-mapfile -t COMMAND < <(python -c 'import json,sys; rows=open(sys.argv[1], encoding="utf-8").read().splitlines(); command=json.loads(rows[int(sys.argv[2])]); print("\n".join(command))' "${PLAN_FILE}" "${TASK_ID}" | tr -d '\r')
+mapfile -t COMMAND < <("${UV_BIN}" run --frozen --no-sync python -c 'import json,sys; rows=open(sys.argv[1], encoding="utf-8").read().splitlines(); command=json.loads(rows[int(sys.argv[2])]); print("\n".join(command))' "${PLAN_FILE}" "${TASK_ID}" | tr -d '\r')
 if (( ${#COMMAND[@]} == 0 )); then
   echo "No command for task ${TASK_ID} (line ${PLAN_LINE})" >&2
   exit 1
@@ -39,7 +52,8 @@ for ((i = 0; i < ${#COMMAND[@]} - 1; i++)); do
     --recipe-version) RECIPE_VERSION="${COMMAND[$((i + 1))]}" ;;
   esac
 done
-printf -v FINAL_COMMAND "%q " "${COMMAND[@]}"
+RUN_COMMAND=("${UV_BIN}" run --frozen --no-sync "${COMMAND[@]}")
+printf -v FINAL_COMMAND "%q " "${RUN_COMMAND[@]}"
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
   echo "DRY_RUN=1"
@@ -55,15 +69,5 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
-cd "${PROJECT_ROOT}"
-unset LD_LIBRARY_PATH
-unset VIRTUAL_ENV
-if [[ -f ".secrets/env" ]]; then
-  while IFS='=' read -r key value; do
-    [[ -z "${key}" || "${key}" == \#* || -z "${value}" ]] && continue
-    if [[ -z "${!key:-}" ]]; then printf -v "${key}" '%s' "${value}"; export "${key}"; fi
-  done < ".secrets/env"
-fi
-source "${VENV_ACTIVATE:-.venv/bin/activate}"
 export PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
-"${COMMAND[@]}"
+"${RUN_COMMAND[@]}"

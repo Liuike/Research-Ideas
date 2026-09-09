@@ -114,6 +114,19 @@ def test_reduced_scout_selects_dynamic_optimizer_set(tmp_path):
     assert len(selected) == 8
 
 
+def test_oscar_submitter_separates_smoke_and_caps_gpu_arrays():
+    submitter = Path("scripts/oscar_submit_exploratory.sh").read_text()
+    runner = Path("scripts/oscar_plan.sbatch").read_text()
+
+    assert 'SMOKE_ARRAY="0-7%2"' in submitter
+    assert 'EXPLORATORY_ARRAY="8-61%2"' in submitter
+    assert 'WAVE2_ARRAY="0-31%2"' in submitter
+    assert 'SMOKE_VERIFIED:-0' in submitter
+    assert "#SBATCH --gres=gpu:1" in runner
+    assert "#SBATCH --constraint=l40s" in runner
+    assert 'done < ".secrets/env"' not in runner
+
+
 def test_duplicate_finished_condition_ids_are_rejected():
     first = _record("same", {"track": "rnn"}, {"success": True})
     second = RunRecord(

@@ -12,10 +12,15 @@ initialization, and maintained weight constraints separate.
 ## Setup
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\python -m pip install -e ".[analysis,test]"
+uv sync --frozen --extra test --extra analysis
 .\scripts\test.ps1
 ```
+
+The committed `.python-version` pins the Python 3.11 series, `pyproject.toml` pins UV
+0.12.11 and the tested direct runtime dependencies, and `uv.lock` freezes the
+complete Windows/Linux dependency graph. PyTorch and torchvision come from the
+explicit official CUDA 12.8 index. Do not run scientific jobs with an updated
+lockfile until the change is committed and validated.
 
 The default test suite keeps optimizer mathematics, task generators,
 configuration expansion, and reproducibility checks, while skipping the
@@ -38,7 +43,7 @@ short smoke test:
 
 ```powershell
 $env:PYTHONPATH="src"
-python -m optimizer_resurrection.train --track rnn --task latch --optimizer adam_o --hidden-size 16 --max-length 20 --steps 5 --batch-size 8 --device cuda --stage engineering-smoke
+uv run --frozen --no-sync python -m optimizer_resurrection.train --track rnn --task latch --optimizer adam_o --hidden-size 16 --max-length 20 --steps 5 --batch-size 8 --device cuda --stage engineering-smoke
 ```
 
 Use `scripts/local_smoke.ps1` for the 4060 Ti verification run. Long MVP arrays
@@ -46,25 +51,38 @@ are in `scripts/oscar_mlp_mvp.sbatch` and `scripts/oscar_rnn_mvp.sbatch`.
 On Brown's secure campus Wi-Fi, use the campus SSH endpoint directly without a
 VPN. See `AGENTS.md` and `docs/experiment_protocol.md`.
 
+After pulling a committed revision on Oscar, create a clean locked environment:
+
+```bash
+cd /users/ezhan153/random-idea-1
+bash scripts/oscar_setup_uv.sh
+```
+
+The setup script bootstraps the pinned UV release separately, recreates
+`.venv`, installs only from `uv.lock`, and runs the test suite. Batch jobs use
+`uv run --frozen --no-sync`, so concurrent tasks cannot modify that environment.
+For the reduced two-L40S workflow, submit `smoke` first, verify and delete its
+disposable W&B group, then submit `exploratory` with `SMOKE_VERIFIED=1`.
+
 ## Orchestration
 
 Committed configs are executable rather than informal notes:
 
 ```powershell
 # Inspect a plan without running it.
-.venv\Scripts\python -m optimizer_resurrection.experiment plan configs\mlp\mvp.yaml --max-runs 3
+uv run --frozen --no-sync python -m optimizer_resurrection.experiment plan configs\mlp\mvp.yaml --max-runs 3
 
 # Run an expanded plan locally (use --max-runs for bounded pilots).
-.venv\Scripts\python -m optimizer_resurrection.experiment plan configs\mlp\mvp.yaml --run --max-runs 1
+uv run --frozen --no-sync python -m optimizer_resurrection.experiment plan configs\mlp\mvp.yaml --run --max-runs 1
 
 # Select frozen learning rates from completed W&B calibration runs.
-.venv\Scripts\python -m optimizer_resurrection.experiment select-recipes --run-group calibration-v1
+uv run --frozen --no-sync python -m optimizer_resurrection.experiment select-recipes --run-group calibration-v1
 
 # Full-study expansion refuses to proceed without the frozen recipe artifact.
-.venv\Scripts\python -m optimizer_resurrection.experiment plan configs\full_study.yaml --recipes configs\frozen_recipes.json
+uv run --frozen --no-sync python -m optimizer_resurrection.experiment plan configs\full_study.yaml --recipes configs\frozen_recipes.json
 
 # This queries W&B and exits nonzero until reproduction Gates A-C all pass.
-.venv\Scripts\python -m optimizer_resurrection.experiment check-gates --run-group reproduction-v1
+uv run --frozen --no-sync python -m optimizer_resurrection.experiment check-gates --run-group reproduction-v1
 ```
 
 For long plans, add `--plan-file plans/full.jsonl`, sync the repository, then
