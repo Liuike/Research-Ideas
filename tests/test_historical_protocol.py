@@ -91,3 +91,18 @@ def test_sign_accuracy_alone_does_not_pass_easy_control():
     for row in rows:
         row.summary["train_loss"] = 0.32
     assert not select_latch_recipe(rows, c)["easy_controls_pass"]
+
+
+def test_frozen_initial_matrix_has_only_twelve_registered_cells():
+    c = yaml.safe_load(Path("configs/historical/latch_initial.yaml").read_text())
+    args = [parse_args(command[3:]) for command in expand_config(c)]
+    assert len(args) == 12
+    assert [(a.max_length, a.noise_amplitude, a.seed) for a in args] == [
+        (10, 0.0, 0), (10, 0.0, 1), (10, 0.0, 2),
+        (10, 0.2, 0), (10, 0.2, 1), (10, 0.2, 2),
+        (100, 0.0, 0), (100, 0.0, 1), (100, 0.0, 2),
+        (100, 0.2, 0), (100, 0.2, 1), (100, 0.2, 2),
+    ]
+    assert all(a.presentations == 5000 and a.learning_rate == 0.1 for a in args)
+    assert all(a.data_seed == a.seed for a in args)
+    assert len({resolved_config(a)["condition_id"] for a in args}) == 12

@@ -1,0 +1,13 @@
+protocol: bsf1994-latch-v1
+max_lengths: [10, 100]
+noise_amplitudes: [0.0, 0.2]
+seeds: [0, 1, 2]
+learning_rates: [0.1]
+presentations: 5000
+train_size: 100
+validation_size: 1000
+device: cuda
+stage: historical-reproduction
+run_group: historical-latch-initial-v1
+recipe_version: historical-latch-frozen-v1
+log_every: 500

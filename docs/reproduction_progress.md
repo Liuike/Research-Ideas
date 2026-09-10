@@ -67,15 +67,71 @@ https://www.cs.cmu.edu/~bhiksha/courses/deeplearning/Fall.2016/pdfs/Bengio_94.pd
   W&B groups and confirmed zero remaining records with fresh API queries.
   Initial attempts pyn1usks/j5xychih lacked git revision because of Windows Git
   ownership checking; discarded and rerun using process-local safe.directory.
-- [ ] Commit and synchronize clean code; recreate pinned Oscar environment.
-- [ ] Validate and clean disposable Oscar smoke.
-- [ ] Finish LR scout and freeze selected recipe.
+- [x] Commit and synchronize clean code: f671263 on branch
+  `codex/historical-latch-reproduction-v1`. Direct incremental Git bundle to
+  Oscar; GitHub push was rejected by automatic approval review as an unapproved
+  export destination, and was not performed. Pinned environment recreated with
+  `bash scripts/oscar_setup_uv.sh`: 60 tests passed, 1 integration test deselected
+  (the complete 61-test suite passed locally).
+- [x] Validate and clean disposable Oscar smoke: job6196206 completed 0:0;
+  W&B run ow9y640m verified clean f671263, L40S hardware, Slurm identity and full
+  trajectory history, then deleted; fresh API query confirmed empty group.
+- [x] Finish LR scout and freeze selected recipe: all 6 tasks completed 0:0.
+  W&B selection run `9i7yjdzi` verified exact condition identities, full budgets,
+  finite summaries, and completeness. Selected LR=0.1 by the registered mean
+  validation-loss rule. Frozen config: `configs/historical/latch_initial.yaml`.
+  **Easy-control screen failed:** the noisy T10 cell learned; the noise-free T10
+  cell did not learn at any candidate LR. Selection therefore returned
+  `easy_controls_pass=false` and exit1, correctly preserving the failed screen.
+  No runs or seeds were excluded. Awaiting user's decision on submitting the
+  requested 12 cells as a diagnostic comparison despite this failed screen.
 - [ ] Submit 12-run evaluation array and record scheduler acceptance.
 
 ## Handoff (populate before stopping)
 
-Launch revision, config paths, W&B groups, Slurm IDs, validation evidence, exact
-inspection commands, and remaining actions will be recorded here as work proceeds.
+Config paths: `configs/historical/latch_scout.yaml`,
+`configs/historical/latch_smoke.yaml`, and `configs/historical/latch_gpu_smoke.yaml`.
+The evaluation YAML will be committed after scout selection. Launcher:
+`scripts/oscar_historical_latch.sbatch`. Remote project root:
+`/users/ezhan153/random-idea-1`. Connect directly to `sshcampus.ccv.brown.edu`
+using the existing RSA key (never embed key material in commands or documents).
+
+Useful commands inside the Oscar project (replace JOB_ID with recorded job ID):
+
+```bash
+squeue -j JOB_ID -o '%.20i %.12T %.30j %.30R'
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed,NodeList
+ls logs/slurm/historical-latch-JOB_ID_*.out logs/slurm/historical-latch-JOB_ID_*.err
+.uv-bootstrap/bin/uv run --frozen --no-sync python -m optimizer_resurrection.experiment plan configs/historical/latch_scout.yaml
+.uv-bootstrap/bin/uv run --frozen --no-sync python -m optimizer_resurrection.historical_protocol --config configs/historical/latch_scout.yaml
+```
+
+The last command validates completed scout cells and records a W&B selection
+analysis run; it does not launch training. Use only if a new selection analysis
+is wanted; the original selection ID will be recorded below.
+
+Oscar smoke: job `6196206`, submitted on f671263 after `bash -n`, planner dry-run,
+and `sbatch --test-only` passed; observed running on gpu2708. Slurm's test-only
+start-time estimate was pessimistic and did not reflect the actual immediate
+start. Retained streams: `logs/slurm/historical-latch-6196206_0.{out,err}`.
+
+Scout: array `6196236`, six tasks with `%2`, committed config
+`configs/historical/latch_scout.yaml`, revision f671263. All six mappings passed
+DRY_RUN and `sbatch --test-only` passed before submission. Group:
+`historical-latch-lr-scout-v1`. Retained streams:
+`logs/slurm/historical-latch-6196236_TASK_ID.{out,err}`.
+
+Scout W&B training IDs: `l6lrxf2u`, `wqvbnki8`, `3jqrci5m`, `e0ouls8c`,
+`kpp9sixk`, `b2164mfu`. All completed; no failed training attempts or excluded
+cells. Tasks2/3 experienced startup filesystem waits (observed through a short
+read-only diagnostic step in allocation6196277), then completed normally.
+
+The source-controlled easy-control screen was an operational safeguard, not a
+historical result or a reason to erase failures. The failure remains part of the
+record. Numerical gradients, one-step updates, data pairing, and the noisy T10
+learning trajectory support continued investigation, but do not establish the
+cause of the noise-free failure. The frozen rate is the registered selector's
+choice, not a claim that both controls passed.
 
 Next agent: inspect every expected Latch condition in W&B and the retained Slurm
 streams. Separate interrupted jobs from completed training that missed its
