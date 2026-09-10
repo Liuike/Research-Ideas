@@ -87,11 +87,15 @@ https://www.cs.cmu.edu/~bhiksha/courses/deeplearning/Fall.2016/pdfs/Bengio_94.pd
   requested 12 cells as a diagnostic comparison despite this failed screen.
 - [ ] Submit 12-run evaluation array and record scheduler acceptance.
 
-## Handoff (populate before stopping)
+## Handoff (submission pending)
 
 Config paths: `configs/historical/latch_scout.yaml`,
-`configs/historical/latch_smoke.yaml`, and `configs/historical/latch_gpu_smoke.yaml`.
-The evaluation YAML will be committed after scout selection. Launcher:
+`configs/historical/latch_smoke.yaml`, `configs/historical/latch_gpu_smoke.yaml`,
+and `configs/historical/latch_initial.yaml` (frozen in commit `7fd6a08`).
+Final local full-suite validation: **62 passed**. Oscar remains on the clean
+scout revision `f671263`; synchronize the final evaluation revision and repeat
+launcher validation before any evaluation submission. No initial evaluation
+jobs have been submitted. Launcher:
 `scripts/oscar_historical_latch.sbatch`. Remote project root:
 `/users/ezhan153/random-idea-1`. Connect directly to `sshcampus.ccv.brown.edu`
 using the existing RSA key (never embed key material in commands or documents).
@@ -109,6 +113,24 @@ ls logs/slurm/historical-latch-JOB_ID_*.out logs/slurm/historical-latch-JOB_ID_*
 The last command validates completed scout cells and records a W&B selection
 analysis run; it does not launch training. Use only if a new selection analysis
 is wanted; the original selection ID will be recorded below.
+
+Read-only W&B inspection (from the pinned project environment):
+
+```bash
+.uv-bootstrap/bin/uv run --frozen --no-sync python - <<'PY'
+import wandb
+from optimizer_resurrection.tracking import load_wandb_credentials
+credentials = load_wandb_credentials()
+project = credentials['WANDB_ENTITY'] + '/' + credentials['WANDB_PROJECT']
+api = wandb.Api(timeout=30)
+for group in ('historical-latch-lr-scout-v1', 'historical-latch-initial-v1'):
+    for run in api.runs(project, filters={'group': group}):
+        print(group, run.id, run.state, dict(run.config), dict(run.summary))
+PY
+```
+
+Do not redirect scientific summaries into project artifacts. Inspect them in
+W&B or terminal output. An empty initial group is expected before submission.
 
 Oscar smoke: job `6196206`, submitted on f671263 after `bash -n`, planner dry-run,
 and `sbatch --test-only` passed; observed running on gpu2708. Slurm's test-only
