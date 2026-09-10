@@ -22,8 +22,14 @@ W&B.
 
 ## Experiment index
 
+Implementation and handoff status for the new historical reconstruction is in
+[`reproduction_progress.md`](reproduction_progress.md). These runs are separate
+from the earlier qualitative gates and do not establish headline readiness.
+
 | Experiment ID | Purpose | Config | W&B group | Expected scope | Status | Decision / follow-up |
 | --- | --- | --- | --- | --- | --- | --- |
+| `historical-latch-lr-scout-v1` | Select a constant SGD rate on short historical Latch controls | [`configs/historical/latch_scout.yaml`](../configs/historical/latch_scout.yaml) | `historical-latch-lr-scout-v1` | 6 runs; T10, noise off/on, held-out seed1000, 3 rates | Implementation/validation | Freeze one rate from completed exact-identity records; require easy controls before evaluation. |
+| `historical-latch-initial-v1` | Reconstruct Section 5.5 Latch failure with a bounded budget | Frozen evaluation config to be added after LR selection | `historical-latch-initial-v1` | 12 runs; T10/T100, noise off/on, seeds0-2, 5000 presentations | Awaiting validated scout | Stop this implementation task after submission; later agent reviews trajectories and every cell. |
 | `legacy-local-smokes-2026-09-05` | Early implementation checks created before W&B-only logging | ad hoc | none | Small MLP/RNN optimizer checks | Superseded and cleaned | Raw local records were deleted without migration; they were engineering smoke data and are not claimable. |
 | `wandb-pipeline-smoke-2026-09-08` | Verify mandatory online logging and absence of new raw output files | ad hoc one-step Latch/Adam-O CPU run | `implementation-validation-2026-09-08` | One temporary verification run | Passed and cleaned | W&B API confirmed a finished run with condition ID, provenance, seeds, terminal metrics, and gate-summary fields. The remote run and local W&B cache were then deleted to establish a clean experimental slate. |
 | `local-gpu-smoke-v1` | Verify the full training/logging path on the RTX 4060 Ti | [`scripts/local_smoke.ps1`](../scripts/local_smoke.ps1) | `local-gpu-smoke` | One ShapeSet/Adam-O run and one Latch/MM run, 10 steps each | Planned | Require finished W&B runs, matching condition IDs, deterministic metadata, finite losses, and no project-local artifacts. |

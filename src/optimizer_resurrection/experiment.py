@@ -53,6 +53,12 @@ def expand_config(
 ) -> list[list[str]]:
     """Expand committed study configs into auditable one-run commands."""
     commands: list[list[str]] = []
+    if config.get("protocol") == "bsf1994-latch-v1":
+        from .historical_protocol import expand_latch_config
+
+        return expand_latch_config(config)
+    if "protocol" in config:
+        raise ValueError(f"unknown historical protocol: {config['protocol']}")
     if config.get("regime") == "reproduction":
         gate_a = config["gate_a"]
         for depth, seed in itertools.product(gate_a["depths"], gate_a["seeds"]):
