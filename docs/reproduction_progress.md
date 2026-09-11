@@ -241,3 +241,54 @@ Slurm spooled the dispatcher, whose SCRIPT_DIR pointed into /var/spool/slurmd.
 Fixed nested-launcher lookup to PROJECT_ROOT/scripts. Retain failed scheduler
 logs `logs/slurm/historical-reproduction-6240725_TASK.{out,err}`. No scientific
 runs were submitted and no W&B training records were created by this attempt.
+
+
+### Submitted scientific array
+
+Execution revision: `15d3027f85834dfdccc493676168fa16aa7897bc` (clean on Oscar).
+Local full suite82 passed; Oscar pinned rebuild81 passed,1 integration deselected.
+All28 mappings passed dry-run; corrected dispatcher smoke mappings and six
+scientific boundaries passed again. Both scripts passed bash-n; scientific
+sbatch-test-only passed immediately before submission.
+
+GPU smoke retry6241277 completed4/4 exit0:0 on NVIDIA L40S. W&B IDs euv4plws,
+sn8mp1bd, etkzf94l,8fqhvz14 verified complete online histories, clean revision,
+Slurm IDs, exact budgets and finite diagnostics. Those two GPU smoke groups
+were deleted and fresh queries confirmed empty. Retain both smoke arrays'
+Slurm logs. The environment rebuild initially hit a transient directory-removal
+error, then succeeded on retry; this was setup failure, not training failure.
+
+Scientific array **6241516**, accepted2026-09-11 14:28EDT, array0-23%2,
+one L40S/task,2CPU,8GB,2h/task. Scheduler confirmed ArrayTaskThrottle=2.
+Tasks0-11: `configs/historical/latch_initial.yaml`, group historical-latch-initial-v1.
+Tasks12-17: `configs/historical/two_sequence_scout.yaml`, group historical-two-sequence-scout-v1.
+Tasks18-23: `configs/historical/parity_scout.yaml`, group historical-parity-scout-v1.
+All24 conditions retain exactly5000 sequence presentations. No other tasks or
+budget extensions launched. All three groups were empty before submission.
+Logs: `/users/ezhan153/random-idea-1/logs/slurm/historical-reproduction-6241516_TASK.{out,err}`.
+
+Inspect on Oscar:
+
+```bash
+cd /users/ezhan153/random-idea-1
+squeue -j 6241516 -o '%.22i %.12T %.30R'
+sacct -j 6241516 --format=JobID,State,ExitCode,Elapsed,NodeList
+```
+
+Use the read-only W&B query above with these three group names. Compare each
+record's global Slurm task ID against the ranges above; the dispatched local
+config index is separate and does not overwrite scheduler provenance. Leave
+the remote checkout at15d3027 while jobs remain queued/running. Local handoff
+commits after submission do not change that execution revision.
+
+
+First scientific W&B history verified: run `ab5m284z`,
+https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/ab5m284z
+The returned history included presentation0 with finite train/validation loss
+and accuracy. API confirmed clean execution revision15d3027 and Slurm array6241516.
+That run already reported finished at read-back; this does not imply completion
+of the entire array or a successful historical reproduction. Monitoring stopped
+at the user's requested first-log milestone. Next agent must inspect every one
+of the24 outcomes, preserve the failed Latch easy-control screen, distinguish
+execution failures from completed-but-unlearned runs, and review calibration
+before freezing new recipes or extending any budgets.
