@@ -8,7 +8,10 @@ scheduler acceptance and this handoff; do not wait for scientific completion.
 The follow-up request explicitly authorizes implementing Two-Sequence and Parity.
 Their implementation and validation continue below; scientific submission is
 not part of that follow-up. MLP, Muon comparisons, and later budget stages remain
-deferred. The pending Latch submission decision is unchanged.
+deferred. On 2026-09-11 the user authorized starting all three prepared groups and
+monitoring until the first W&B scientific log. This authorizes diagnostic
+Latch submission despite the failed control and proceeding with the explicitly
+documented Two-Sequence/Parity reconstructions. The failed screen is preserved.
 
 ## Two-Sequence and Parity follow-up
 
@@ -215,3 +218,20 @@ success criterion. Do not claim historical reproduction solely from a finished
 run or an accuracy difference. Review the trajectories and easy-task controls
 before proposing the 20,000/100,000-presentation stages. Existing Gates A-C and
 headline readiness remain independent and unchanged.
+
+
+## 2026-09-11 authorized launch
+
+User requested starting all prepared runs and monitoring until W&B receives
+its first scientific log. Latch is now labeled `historical-diagnostic`; only
+that runtime label changed, not the frozen LR, data, budgets, or condition IDs.
+The earlier pending-decision notes describe prior status and are superseded by
+this authorization. Two-Sequence/Parity retain their documented assumptions.
+
+Launcher: `scripts/oscar_historical_reproduction.sbatch`, scientific mode,
+array0-23%2: tasks0-11 Latch initial,12-17 Two-Sequence scout,18-23 Parity scout.
+All tasks request one L40S; the combined array caps total concurrency at two.
+Smoke mode uses array0-3%2 and the new committed GPU smoke configs for both tasks.
+Source will be synchronized directly to Oscar with a Git bundle. No GitHub push.
+Preflight, job IDs, execution revision and first-log evidence will be recorded
+below. Keep the remote execution checkout unchanged while jobs are queued.

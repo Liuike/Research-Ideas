@@ -14,7 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}}"
 CONFIG="${1:?Pass committed historical Latch YAML}"
-TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
+TASK_ID="${PLAN_TASK_ID:-${SLURM_ARRAY_TASK_ID:-0}}"
 UV_BIN="${UV_BIN:-${PROJECT_ROOT}/.uv-bootstrap/bin/uv}"
 cd "$PROJECT_ROOT"
 if [[ -n "${EXPECTED_REVISION:-}" && "$(git rev-parse HEAD)" != "$EXPECTED_REVISION" ]]; then

@@ -7,7 +7,7 @@ presentations: 5000
 train_size: 100
 validation_size: 1000
 device: cuda
-stage: historical-reproduction
+stage: historical-diagnostic
 run_group: historical-latch-initial-v1
 recipe_version: historical-latch-frozen-v1
 log_every: 500
