@@ -1,0 +1,20 @@
+protocol: bsf1994-parity-v1
+max_lengths:
+- 10
+noise_amplitudes:
+- 0.0
+- 0.2
+seeds:
+- 1000
+learning_rates:
+- 0.001
+- 0.01
+- 0.1
+presentations: 5000
+train_size: 100
+validation_size: 1000
+device: cuda
+stage: historical-calibration
+run_group: historical-parity-scout-v1
+recipe_version: historical-parity-scout-v1
+log_every: 500

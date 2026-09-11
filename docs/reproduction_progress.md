@@ -5,7 +5,61 @@
 Implement the shared historical protocol infrastructure and the 1994 Section 5.5
 Latch benchmark, validate, and submit the initial 12 Oscar jobs. Stop after
 scheduler acceptance and this handoff; do not wait for scientific completion.
-MLP, Two-Sequence, Parity, Muon comparisons, and later budget stages are deferred.
+The follow-up request explicitly authorizes implementing Two-Sequence and Parity.
+Their implementation and validation continue below; scientific submission is
+not part of that follow-up. MLP, Muon comparisons, and later budget stages remain
+deferred. The pending Latch submission decision is unchanged.
+
+## Two-Sequence and Parity follow-up
+
+- Scope confirmed by user: implement both remaining recurrent benchmarks.
+- Protocol and unresolved assumptions: [historical_sequence_protocols.md](historical_sequence_protocols.md).
+- Added isolated models/data generators, plain-SGD runner, strict planner,
+  held-out scout selection, full-span FP32/float64 diagnostics, W&B provenance,
+  and separate CPU smoke/scout configs. Existing Latch recipes are unchanged.
+- Independent agent implemented core/data tests and reviewed the parent-owned
+  runner. Primary reviewed the core and integrated fixes. Review found and
+  resolved W&B initialization-failure cleanup and state-gradient underflow
+  detection gaps.
+- Full suite passed 81 tests without warnings. A subsequently added failure-path
+  regression passed with all 12 runner tests (82 tests in the resulting suite).
+  Central finite differences cover every parameter/input of both models;
+  recurrence hand checks, trace equivalence, pairing, parity, exact SGD,
+  budget accounting, strict selection and diagnostic isolation also pass.
+- Four online CPU engineering smokes completed: Two-Sequence `uhps9j76` (noise0)
+  and `80ocoqnu` (noise0.2); Parity `yfcwmvnp` (noise0) and `5m4w7teo` (noise0.2).
+  All ran 10 presentations, with snapshots at0/1/5/10 and 136 diagnostic
+  sequence evaluations. API read-back verified identities, finite full-span
+  gradients, data digests, terminal outcomes and dirty engineering provenance
+  based on `ea03532`. These are retained in the ledger's smoke groups; they
+  are not scientific learning evidence. Final review fixes were unit-tested
+  after these smokes. No GPU validation or new Slurm submission occurred.
+- Scientific runs and comparison recipe selection remain unexecuted. Do not
+  report implementation tests as evidence of historical training failure.
+
+Commands from the project root (use `.venv/Scripts/uv.exe` on this Windows
+machine, or the pinned `uv` executable in a prepared environment):
+
+```bash
+uv run --frozen --no-sync python -m optimizer_resurrection.experiment plan configs/historical/two_sequence_smoke.yaml configs/historical/parity_smoke.yaml
+uv run --frozen --no-sync python -m optimizer_resurrection.experiment plan configs/historical/two_sequence_scout.yaml configs/historical/parity_scout.yaml
+```
+
+Add `--run` only when intentionally executing the registered conditions. After
+completed calibration, use the following selector separately for each task;
+it validates completeness and writes an analysis record to online W&B:
+
+```bash
+uv run --frozen --no-sync python -m optimizer_resurrection.historical_sequence_protocol --config configs/historical/two_sequence_scout.yaml
+uv run --frozen --no-sync python -m optimizer_resurrection.historical_sequence_protocol --config configs/historical/parity_scout.yaml
+```
+
+Before an Oscar launch, review assumptions, synchronize a clean committed
+revision, recreate the pinned environment, validate a task-appropriate durable
+Slurm script and online GPU smoke, and retain logs. Delete disposable smoke
+W&B groups only after verification and before releasing scientific jobs.
+Review every scout outcome before freezing a comparison recipe. No initial
+comparison matrix or selected LR is implied by the registered scouts.
 
 ## Fidelity record
 

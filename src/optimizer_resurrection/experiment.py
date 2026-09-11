@@ -58,6 +58,9 @@ def expand_config(
 
         return expand_latch_config(config)
     if "protocol" in config:
+        if config["protocol"] in {"bsf1994-two-sequence-v1", "bsf1994-parity-v1"}:
+            from .historical_sequence_protocol import expand_config as expand_sequences
+            return expand_sequences(config)
         raise ValueError(f"unknown historical protocol: {config['protocol']}")
     if config.get("regime") == "reproduction":
         gate_a = config["gate_a"]

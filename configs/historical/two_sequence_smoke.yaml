@@ -1,0 +1,18 @@
+protocol: bsf1994-two-sequence-v1
+max_lengths:
+- 10
+noise_amplitudes:
+- 0.0
+- 0.2
+seeds:
+- 999
+learning_rates:
+- 0.01
+presentations: 10
+train_size: 10
+validation_size: 20
+device: cpu
+stage: engineering-smoke
+run_group: historical-two-sequence-smoke-v1
+recipe_version: historical-two-sequence-smoke-v1
+log_every: 5
