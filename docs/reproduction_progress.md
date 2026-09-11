@@ -235,3 +235,9 @@ Smoke mode uses array0-3%2 and the new committed GPU smoke configs for both task
 Source will be synchronized directly to Oscar with a Git bundle. No GitHub push.
 Preflight, job IDs, execution revision and first-log evidence will be recorded
 below. Keep the remote execution checkout unchanged while jobs are queued.
+
+Smoke attempt array6240725 failed all four tasks with exit127 before training:
+Slurm spooled the dispatcher, whose SCRIPT_DIR pointed into /var/spool/slurmd.
+Fixed nested-launcher lookup to PROJECT_ROOT/scripts. Retain failed scheduler
+logs `logs/slurm/historical-reproduction-6240725_TASK.{out,err}`. No scientific
+runs were submitted and no W&B training records were created by this attempt.

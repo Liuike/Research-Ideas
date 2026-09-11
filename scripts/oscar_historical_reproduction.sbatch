@@ -52,7 +52,7 @@ case "$MODE" in
     *) echo "Mode must be scientific or smoke" >&2; exit 1 ;;
 esac
 export PROJECT_ROOT PLAN_TASK_ID
-COMMAND=(bash "${SCRIPT_DIR}/oscar_historical_latch.sbatch" "$CONFIG")
+COMMAND=(bash "${PROJECT_ROOT}/scripts/oscar_historical_latch.sbatch" "$CONFIG")
 printf -v FINAL_COMMAND '%q ' "${COMMAND[@]}"
 echo "Mode: $MODE; Slurm task: $TASK_ID; config task: $PLAN_TASK_ID"
 echo "Dispatch command: $FINAL_COMMAND"
