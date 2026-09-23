@@ -60,6 +60,18 @@ Set `WANDB_DIR`, `WANDB_DATA_DIR`, `WANDB_CONFIG_DIR`, and `WANDB_CACHE_DIR`
 to an ignored workspace `wandb/` directory if the default user profile
 directories are not writable. Never set W&B offline mode.
 
+The 180-cell array was submitted to Oscar as job `6649298` from clean revision
+`6a370b1`; the isolated worktree is pinned to that commit. It was pending at
+submission on 2026-09-23. After all jobs finish, analyze the full W&B group:
+
+```powershell
+.venv\Scripts\uv.exe run --frozen --no-sync python -m optimizer_resurrection.punn_analysis --config configs\product_unit\landscape_basic.yaml
+```
+
+Analysis rejects missing or duplicate conditions, broken seed/data pairing,
+inconsistent source revisions, and incomplete successful runs. Numerical
+failures are counted separately from completed MSE values.
+
 ## Initial engineering smoke, 2026-09-23
 
 The 5-epoch, seed-0 smoke is a software check, not a 30-run reproduction.
