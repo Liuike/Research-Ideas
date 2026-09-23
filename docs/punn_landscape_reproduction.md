@@ -21,6 +21,9 @@ these runs.
   `exp(V @ log(abs(x))) * cos(pi * V @ 1[x < 0])`. A zero input raises an error;
   generated exact zeros are resampled. No positive shift or exponential clamp
   is applied.
+- The complex-number expression handles negative inputs. The paper's term
+  *complex PUNN landscape* instead refers to an oversized architecture;
+  that architecture is outside this basic reconstruction.
 - Functions: `f1(x)=x²`, 50 sampled patterns; `f4(x,y)=y⁷x³−0.5x⁶`, 300
   sampled patterns. Inputs are uniform on `[-1,1]`. Each seed uses a 75/25
   train/test split shared across methods.
@@ -60,9 +63,9 @@ Set `WANDB_DIR`, `WANDB_DATA_DIR`, `WANDB_CONFIG_DIR`, and `WANDB_CACHE_DIR`
 to an ignored workspace `wandb/` directory if the default user profile
 directories are not writable. Never set W&B offline mode.
 
-The 180-cell array was submitted to Oscar as job `6649298` from clean revision
-`6a370b1`; the isolated worktree is pinned to that commit. It was pending at
-submission on 2026-09-23. After all jobs finish, analyze the full W&B group:
+The 180-cell array ran on Oscar as job `6649298` from clean revision
+`6a370b1`; the isolated worktree is pinned to that commit. Analyze the full
+W&B group with:
 
 ```powershell
 .venv\Scripts\uv.exe run --frozen --no-sync python -m optimizer_resurrection.punn_analysis --config configs\product_unit\landscape_basic.yaml
@@ -103,3 +106,37 @@ estimates or exact Table 5 values.
 
 The six source runs and completeness check are recorded in the
 [pilot W&B analysis](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/vm53fh3l).
+
+## 30-seed scientific result, 2026-09-23
+
+All 180 Slurm parent tasks completed. The [paired W&B analysis](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/msv5dnqu)
+accepted all 180 unique condition IDs, matched every dataset digest across
+methods for each task and seed, and verified the same clean source revision
+and source-tree digest across runs. The table gives mean test MSE for
+*completed* runs only; numerical failures are shown separately and do not
+contribute to those means.
+
+| Function | Method | Completed / 30 | Numerical failures | Mean test MSE | Paper Table 5, first oPUNN row |
+| --- | --- | ---: | ---: | ---: | ---: |
+| f1 | SGD | 29 | 1 | 0.09754 | not reported |
+| f1 | PSO | 30 | 0 | 0.04503 | 0.062 |
+| f1 | DE | 30 | 0 | 0.04526 | 0.059 |
+| f4 | SGD | 19 | 11 | 0.37335 | not reported |
+| f4 | PSO | 30 | 0 | 0.01591 | 0.031 |
+| f4 | DE | 30 | 0 | 0.01679 | 0.033 |
+
+On paired test sets, SGD either failed numerically or had greater test MSE
+than *both* population methods in 21/30 f1 seeds and 29/30 f4 seeds. Thus,
+the reconstruction supports the paper's broad observation that PSO and DE
+train these PUNNs more reliably than SGD, especially for f4. It does not
+replicate a literal failure of SGD in every run: 29 f1 and 19 f4 SGD runs
+remained finite through 500 epochs. The paper does not give a numeric SGD
+failure threshold or publish its SGD results, so finite completion alone
+cannot establish that those runs trained successfully.
+
+The population MSEs are lower than the paper's first oPUNN rows, rather than
+matching them numerically. The sampled patterns and seeds are unavailable,
+and population size, update details, minibatch order, and boundary policy
+are reconstructed choices. This is a directional replication of two basic
+regression cases, not an exact recreation of Table 5 or the full landscape
+analysis. The paper's larger-bound oPUNN rows remain untested here.

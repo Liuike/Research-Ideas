@@ -36,6 +36,8 @@ def test_analysis_accepts_explicit_failures_and_requires_all_cells() -> None:
     report = summarize_records(CONFIG, records())
     assert report["expected_cells"] == 6
     assert sum(row["numerical_failures"] for row in report["rows"]) == 2
+    assert all(row["sgd_failed_or_higher_test_mse_than_both"] == 1
+               for row in report["paired_rows"])
     with pytest.raises(ValueError, match="incomplete PUNN plan"):
         summarize_records(CONFIG, records()[:-1])
 

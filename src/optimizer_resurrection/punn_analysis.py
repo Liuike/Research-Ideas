@@ -91,11 +91,37 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
             row[f"mean_{metric}"] = statistics.mean(values) if values else None
             row[f"sd_{metric}"] = statistics.stdev(values) if len(values) > 1 else None
         rows.append(row)
+    paired_rows = []
+    if {"sgd", "pso", "de"}.issubset(config["methods"]):
+        by_pair = {
+            (expected[condition_id].task, expected[condition_id].seed,
+             expected[condition_id].method): record
+            for condition_id, record in observed.items()
+        }
+        for task in config["tasks"]:
+            counts = {"task": task, "seeds": len(config["seeds"]),
+                      "sgd_numerical_failures": 0,
+                      "sgd_failed_or_higher_test_mse_than_pso": 0,
+                      "sgd_failed_or_higher_test_mse_than_de": 0,
+                      "sgd_failed_or_higher_test_mse_than_both": 0}
+            for seed in config["seeds"]:
+                sgd = by_pair[(task, seed, "sgd")]
+                failed = sgd.summary["terminal_outcome"] == "numerical_failure"
+                counts["sgd_numerical_failures"] += int(failed)
+                worse = {}
+                for method in ("pso", "de"):
+                    population = by_pair[(task, seed, method)]
+                    if population.summary["terminal_outcome"] != "completed":
+                        raise ValueError(f"population method failed in paired comparison: {population.run_id}")
+                    worse[method] = failed or float(sgd.summary["test_mse"]) > float(population.summary["test_mse"])
+                    counts[f"sgd_failed_or_higher_test_mse_than_{method}"] += int(worse[method])
+                counts["sgd_failed_or_higher_test_mse_than_both"] += int(all(worse.values()))
+            paired_rows.append(counts)
     return {"expected_cells": len(expected), "observed_cells": len(observed),
             "source_revision": next(iter(source_revisions), None),
             "source_tree_digest": next(iter(source_digests), None),
             "source_run_ids": sorted(record.run_id for record in observed.values()),
-            "rows": rows}
+            "rows": rows, "paired_rows": paired_rows}
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
