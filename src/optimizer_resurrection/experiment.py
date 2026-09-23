@@ -57,6 +57,10 @@ def expand_config(
         from .historical_protocol import expand_latch_config
 
         return expand_latch_config(config)
+    if config.get("protocol") == "engelbrecht-gouldie-2024-basic-v1":
+        from .punn_protocol import expand_config as expand_punn_config
+
+        return expand_punn_config(config)
     if "protocol" in config:
         if config["protocol"] in {"bsf1994-two-sequence-v1", "bsf1994-parity-v1"}:
             from .historical_sequence_protocol import expand_config as expand_sequences

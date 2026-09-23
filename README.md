@@ -105,3 +105,8 @@ Track every launched study and its W&B group in `docs/experiments.md`.
 - `scripts`: local and Oscar launchers
 - `analysis`: critical-boundary estimation
 - `tests`: numerical, generator, assignment, and reproducibility checks
+
+The proposed classical product-unit follow-up is in
+[`docs/product_unit_muon_plan.md`](docs/product_unit_muon_plan.md).
+The focused 2024 PUNN reconstruction and its registered plans are in
+[`docs/punn_landscape_reproduction.md`](docs/punn_landscape_reproduction.md).

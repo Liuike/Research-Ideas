@@ -1,0 +1,15 @@
+protocol: engelbrecht-gouldie-2024-basic-v1
+tasks: [f1, f4]
+methods: [sgd, pso, de]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+data_seed_offset: 100000
+epochs: 500
+population_size: 20
+search_bound: 1.0
+boundary: clip
+learning_rate: 0.1
+momentum: 0.9
+log_every: 50
+device: cpu
+stage: reproduction
+run_group: punn-landscape-basic-v1

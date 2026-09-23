@@ -1,0 +1,15 @@
+protocol: engelbrecht-gouldie-2024-basic-v1
+tasks: [f1, f4]
+methods: [sgd, pso, de]
+seeds: [0]
+data_seed_offset: 100000
+epochs: 5
+population_size: 8
+search_bound: 1.0
+boundary: clip
+learning_rate: 0.1
+momentum: 0.9
+log_every: 1
+device: cpu
+stage: engineering-smoke
+run_group: punn-landscape-smoke-v1
