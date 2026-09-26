@@ -7,6 +7,7 @@ batched landscape evaluation may use CUDA. Diagnostic RNGs never train models.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import itertools
 import json
@@ -19,7 +20,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch.nn.utils import parameters_to_vector
+from torch.nn.utils import parameters_to_vector, vector_to_parameters
 
 from .models import ProductUnitNetwork
 from .punn_landscape import TASKS, make_dataset, run_trial
@@ -36,6 +37,7 @@ FIELDS = {"protocol", "tasks", "methods", "seeds", "data_seed_offset", "epochs",
           "landscape_seed_offset", "slice_points", "slice_radius", "prw_steps",
           "mrw_steps", "uniform_per_dim", "dispersion_samples", "landscape_batch_size",
           "landscape_bounds"}
+OPTIONAL_FIELDS = {"landscape_cpu_reference"}
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -57,6 +59,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--boundary", choices=["clip", "reflect"], default="clip")
     parser.add_argument("--device", choices=["cpu"], default="cpu")
     parser.add_argument("--landscape-device", choices=["cpu", "cuda"], default="cuda")
+    parser.add_argument("--landscape-cpu-reference", choices=["true", "false"], default="false")
     parser.add_argument("--landscape-bounds", choices=["training", "training-and-paper-wide"],
                         default="training-and-paper-wide")
     parser.add_argument("--stage", default="reproduction")
@@ -78,7 +81,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         parser.error("momentum must be in [0,1)")
     if min(args.seed, args.data_seed, args.landscape_seed_offset) < 0:
         parser.error("seeds and seed offset must be nonnegative")
-    values = {k: v for k, v in vars(args).items() if k not in RUNTIME}
+    values = {k: v for k, v in vars(args).items() if k not in RUNTIME
+              and not (k == "landscape_cpu_reference" and v == "false")}
     condition = hashlib.sha256(json.dumps(values, sort_keys=True, separators=(",", ":"),
                                          allow_nan=False).encode()).hexdigest()
     if args.condition_id is not None and args.condition_id != condition:
@@ -88,9 +92,9 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def expand_config(config: dict[str, Any]) -> list[list[str]]:
-    if FIELDS != config.keys() or config.get("protocol") != PROTOCOL:
+    if not FIELDS <= config.keys() or config.keys() - FIELDS - OPTIONAL_FIELDS or config.get("protocol") != PROTOCOL:
         raise ValueError(f"invalid recorded PUNN config fields: missing={FIELDS-config.keys()} "
-                         f"extra={config.keys()-FIELDS}")
+                         f"extra={config.keys()-FIELDS-OPTIONAL_FIELDS}")
     for axis in ("tasks", "methods", "seeds"):
         values = config[axis]
         if not isinstance(values, list) or not values or len(set(values)) != len(values):
@@ -145,6 +149,34 @@ def _update_array_digest(digest, payload, prefix=""):
         digest.update(value.tobytes())
 
 
+def _add_cpu_reference(record, model, dataset, args):
+    """Retain platform cancellation/overflow differences instead of hiding them."""
+    vectors = record.get("vectors", record.get("grid_coordinates"))
+    original = record["mse"]
+    # Candidate batching itself changes FP32 GEMM cancellation. Use the exact
+    # original one-model/full-dataset forward, even for CPU diagnostic arrays.
+    reference_model = copy.deepcopy(model).cpu()
+    flat = vectors.reshape(-1, vectors.shape[-1])
+    reference = torch.empty(len(flat), dtype=torch.float32)
+    with torch.no_grad():
+        for index, vector in enumerate(flat):
+            vector_to_parameters(vector, reference_model.parameters())
+            reference[index] = (reference_model(dataset.train_x) - dataset.train_y).square().mean()
+    reference = reference.reshape(original.shape)
+    record["cpu_reference_mse"] = reference
+    record["cpu_reference_nonfinite"] = ~torch.isfinite(reference)
+    finite = torch.isfinite(original) & torch.isfinite(reference)
+    relative = ((original[finite].double() - reference[finite].double()).abs()
+                / reference[finite].double().abs().clamp_min(1e-12))
+    record["precision_comparison"] = {
+        "reference": "original CPU FP32 ProductUnitNetwork.forward, one candidate and the full training dataset",
+        "finite_mask_disagreements": int((torch.isfinite(original) != torch.isfinite(reference)).sum()),
+        "common_finite_count": int(finite.sum()),
+        "maximum_common_finite_relative_difference": float(relative.max()) if relative.numel() else None,
+        "common_finite_relative_difference_gt_1e_minus4": int((relative > 1e-4).sum()),
+    }
+
+
 class LandscapeRecorder:
     def __init__(self, args, model, dataset, run, artifact):
         from .punn_sampling import orthonormal_directions
@@ -173,6 +205,8 @@ class LandscapeRecorder:
                                directions=self.directions, radius=self.args.slice_radius,
                                points=self.args.slice_points, device=self.args.landscape_device,
                                batch_size=self.args.landscape_batch_size)
+        if self.args.landscape_cpu_reference == "true":
+            _add_cpu_reference(sampled, self.model, self.dataset, self.args)
         self.slices.append({"epoch": epoch, "kind": kind, "center": vector.clone(), "sample": sampled})
 
     def finish(self):
@@ -183,16 +217,22 @@ class LandscapeRecorder:
             for index, value in enumerate(getattr(self, category)):
                 payload[f"{category}/{index:04d}"] = value
         _write_payload(self.artifact, "training_landscapes.npz", payload)
-        table = wandb.Table(columns=["epoch", "kind", "u", "v", "train_mse", "nonfinite"])
+        table = wandb.Table(columns=["epoch", "kind", "u", "v", "train_mse", "nonfinite",
+                                    "cpu_reference_mse", "cpu_reference_nonfinite"])
         for entry in self.slices:
             sample = entry["sample"]
             u, v = torch.meshgrid(sample["coordinates_1d"], sample["coordinates_1d"], indexing="ij")
             coordinates = torch.stack((u, v), dim=-1).reshape(-1, 2)
             losses = sample["mse"].reshape(-1)
-            for point, loss in zip(coordinates, losses):
+            reference_losses = (sample["cpu_reference_mse"].reshape(-1)
+                                if "cpu_reference_mse" in sample else [None] * len(losses))
+            for point, loss, reference in zip(coordinates, losses, reference_losses):
                 finite = math.isfinite(float(loss))
+                reference_finite = reference is not None and math.isfinite(float(reference))
                 table.add_data(entry["epoch"], entry["kind"], float(point[0]), float(point[1]),
-                               float(loss) if finite else None, not finite)
+                               float(loss) if finite else None, not finite,
+                               float(reference) if reference_finite else None,
+                               not reference_finite if reference is not None else None)
         self.artifact.add(table, "loss_slices")
         return {"landscape_states": len(self.states), "landscape_slices": len(self.slices),
                 "landscape_population_snapshots": len(self.populations)}
@@ -235,6 +275,8 @@ def main(argv=None):
         "source": {"url": "https://www.mdpi.com/1999-4893/17/6/241", "sections": [2, 6, 8]},
         "training": "unchanged original CPU FP32 scalar objective, batch-one seeded SGD",
         "training_device": "cpu", "landscape_device": args.landscape_device,
+        "cpu_reference": args.landscape_cpu_reference == "true",
+        "numerical_precision_note": "Extreme product terms may cancel differently in CPU and CUDA FP32 matrix products; both raw evaluations are retained when CPU reference is enabled.",
         "sampling_seed": sampling_seed, "global_bounds": bounds,
         "parameter_order": [{"name": n, "shape": list(p.shape)} for n, p in model.named_parameters()],
         "diagnostic_note": "Raw walks support later FLA; local slices and finite-difference summaries are not exact paper metric replications.",
@@ -264,6 +306,11 @@ def main(argv=None):
                                     uniform_per_dim=args.uniform_per_dim,
                                     dispersion_samples=args.dispersion_samples,
                                     device=args.landscape_device, batch_size=args.landscape_batch_size)
+            if args.landscape_cpu_reference == "true":
+                for record in sampled["samples"].values():
+                    _add_cpu_reference(record, model, dataset, args)
+                sampled["summary"]["precision_comparisons"] = {
+                    name: record["precision_comparison"] for name, record in sampled["samples"].items()}
             _write_payload(artifact, f"global_bound_{bound:g}.npz", sampled)
             _update_array_digest(global_digest, sampled, f"bound_{bound:g}")
             global_summaries[f"bound_{bound:g}"] = sampled.get("summary", {})
@@ -292,6 +339,7 @@ def main(argv=None):
         payload = {**asdict(result), **counts, "initialization_digest": initialization_digest,
                    "order_seed": args.seed + 1_000_003, "landscape_seed": sampling_seed,
                    "landscape_samples_digest": global_digest.hexdigest(),
+                   "landscape_cpu_reference": args.landscape_cpu_reference == "true",
                    "landscape_artifact": artifact.qualified_name, "landscape_status": "completed",
                    "landscape_global_summaries": global_summaries,
                    "wall_seconds": time.monotonic()-started}

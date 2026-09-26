@@ -11,7 +11,7 @@ import yaml
 
 from optimizer_resurrection.experiment import expand_config
 from optimizer_resurrection.punn_landscape import make_dataset, run_trial
-from optimizer_resurrection.punn_recorded import PROTOCOL, LandscapeRecorder, _write_payload, parse_args
+from optimizer_resurrection.punn_recorded import PROTOCOL, LandscapeRecorder, _add_cpu_reference, _write_payload, parse_args
 from optimizer_resurrection.tracking import RunRecord
 from optimizer_resurrection.punn_analysis import summarize_records
 
@@ -34,6 +34,40 @@ def test_recorded_plan_preserves_recipe_and_has_separate_conditions():
         parse_args([*commands[0][3:], "--slice-points", "4"])
     with pytest.raises(SystemExit):
         parse_args([*commands[0][3:], "--condition-id", "incorrect"])
+    reference_config = yaml.safe_load((ROOT / "configs/product_unit/landscape_recorded_references.yaml").read_text())
+    references = [parse_args(c[3:]) for c in expand_config(reference_config)]
+    assert len(references) == 180
+    assert all(a.landscape_cpu_reference == "true" for a in references)
+    assert {a.condition_id for a in parsed}.isdisjoint({a.condition_id for a in references})
+
+
+def test_cpu_reference_uses_original_model_forward_and_preserves_raw_disagreements():
+    from optimizer_resurrection.models import ProductUnitNetwork
+    from torch.nn.utils import parameters_to_vector, vector_to_parameters
+    from types import SimpleNamespace
+
+    model = ProductUnitNetwork(2, 3)
+    dataset = make_dataset("f4", 100000)
+    vector = torch.tensor([-7., -7., 7., 7., -7., -7., 7., 7., -7., -7.])
+    reference_model = ProductUnitNetwork(2, 3)
+    vector_to_parameters(vector, reference_model.parameters())
+    with torch.no_grad():
+        expected = (reference_model(dataset.train_x)-dataset.train_y).square().mean()
+    before_model = parameters_to_vector(model.parameters()).detach().clone()
+    before_rng = torch.get_rng_state().clone()
+    record = {"vectors": vector.repeat(16, 1), "mse": torch.full((16,), float("inf"))}
+    _add_cpu_reference(record, model, dataset, SimpleNamespace(landscape_device="cuda",landscape_batch_size=16))
+    assert torch.equal(torch.get_rng_state(), before_rng)
+    assert torch.equal(parameters_to_vector(model.parameters()), before_model)
+    assert torch.equal(record["cpu_reference_mse"], expected.repeat(16))
+    assert torch.isfinite(expected)
+    assert torch.isinf(record["mse"]).all()
+    assert record["precision_comparison"]["finite_mask_disagreements"] == 16
+
+
+def test_original_recorded_condition_ids_remain_compatible_without_reference():
+    config = yaml.safe_load((ROOT / "configs/product_unit/landscape_recorded_cpu_smoke.yaml").read_text())
+    assert parse_args(expand_config(config)[0][3:]).condition_id == "544ae0a928286c72306a4aefeca3ace31caa477ded9f6c474adacc4f531c0b6f"
 
 
 @pytest.mark.parametrize("method", ["sgd", "pso", "de"])
@@ -51,8 +85,11 @@ def test_state_recording_preserves_exact_training_result_and_keeps_terminal(meth
     def observer(epoch, kind, vector, population, losses):
         states.append((epoch, kind, vector.clone()))
         if torch.isfinite(vector).all():
-            sample_slice(observer_model, dataset.train_x, dataset.train_y, vector,
-                         directions=directions, points=3, device="cpu")
+            sampled = sample_slice(observer_model, dataset.train_x, dataset.train_y, vector,
+                                   directions=directions, points=3, device="cpu")
+            from types import SimpleNamespace
+            _add_cpu_reference(sampled, observer_model, dataset,
+                               SimpleNamespace(landscape_device="cpu", landscape_batch_size=32))
         # Mutating the callback copies must not mutate the training model.
         vector.fill_(100)
         if population is not None:
@@ -116,13 +153,14 @@ def test_recorder_table_plane_coordinates_and_saved_states(task):
     assert len(artifact.table.data) == 50
     assert [(row[2], row[3]) for row in artifact.table.data[:25]] == [
         (u, v) for u in [-1., -.5, 0., .5, 1.] for v in [-1., -.5, 0., .5, 1.]]
+    assert all(row[-2:] == [None, None] for row in artifact.table.data)
     with np.load(io.BytesIO(artifact.files["training_landscapes.npz"]), allow_pickle=False) as archive:
         assert archive["slices/0000/sample/grid_coordinates"].shape == (5, 5, vector.numel())
         assert np.array_equal(archive["states/0000/parameters"], vector.numpy())
 
 
 def test_recorded_analysis_requires_landscapes_and_initialization_pairing():
-    config = yaml.safe_load((ROOT / "configs/product_unit/landscape_recorded_cpu_smoke.yaml").read_text())
+    config = yaml.safe_load((ROOT / "configs/product_unit/landscape_recorded_cpu_reference_smoke.yaml").read_text())
     records = []
     for index, command in enumerate(expand_config(config)):
         args = parse_args(command[3:])
@@ -132,7 +170,7 @@ def test_recorded_analysis_requires_landscapes_and_initialization_pairing():
                    "initialization_digest": args.task, "order_seed": args.seed + 1_000_003,
                    "landscape_status": "completed", "landscape_artifact": f"artifact-{index}:v0",
                    "landscape_slices": 2, "landscape_seed": args.data_seed + args.landscape_seed_offset,
-                   "landscape_samples_digest": args.task}
+                   "landscape_samples_digest": args.task, "landscape_cpu_reference": True}
         records.append(RunRecord(str(index), "finished", vars(args), summary, "https://example.invalid"))
     assert summarize_records(config, records)["observed_cells"] == 6
     first = records[0]
@@ -143,6 +181,10 @@ def test_recorded_analysis_requires_landscapes_and_initialization_pairing():
     bad = RunRecord(first.run_id, first.state, first.config,
                     {**first.summary, "initialization_digest": "other"}, first.url)
     with pytest.raises(ValueError, match="different initializations"):
+        summarize_records(config, [bad, *records[1:]])
+    bad = RunRecord(first.run_id, first.state, first.config,
+                    {**first.summary, "landscape_cpu_reference": False}, first.url)
+    with pytest.raises(ValueError, match="CPU landscape reference"):
         summarize_records(config, [bad, *records[1:]])
 
 

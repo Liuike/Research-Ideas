@@ -40,6 +40,8 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
         for key, value in vars(args).items():
             if key in {"dry_run", "condition_id"}:
                 continue
+            if key == "landscape_cpu_reference" and key not in config and key not in record.config:
+                continue
             if record.config.get(key) != value:
                 raise ValueError(f"resolved config mismatch for {record.run_id}: {key}")
         outcome = record.summary.get("terminal_outcome")
@@ -52,6 +54,8 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
                 raise ValueError(f"landscape seed mismatch: {record.run_id}")
             if not record.summary.get("landscape_samples_digest"):
                 raise ValueError(f"missing landscape samples digest: {record.run_id}")
+            if args.landscape_cpu_reference == "true" and record.summary.get("landscape_cpu_reference") is not True:
+                raise ValueError(f"missing CPU landscape reference: {record.run_id}")
         if outcome == "completed":
             if record.state != "finished" or record.summary.get("numerical_failure") is not False:
                 raise ValueError(f"invalid completed run: {record.run_id}")
