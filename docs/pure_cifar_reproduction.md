@@ -68,6 +68,25 @@ Completion requires five finite 160-epoch runs; no accuracy threshold is set.
 
 ## Status
 
-Implementation and 130 unit tests passed; live CPU/GPU smoke verification and
-the five-seed scientific array are pending. The experiment ledger records
-subsequent job/run IDs and outcomes.
+All 130 unit tests passed locally and on Oscar (one integration test deselected).
+Live CPU smoke `o9bmqchf`, local GPU smoke `xmz4e9pw`, and Oscar L40S smoke
+array `6728167` / run `ydjyeemd` trained their one epoch with finite values but
+recorded `nonfinite_test_output` during final evaluation. Local GPU training
+took 2.04 seconds for eight batches, with 1.21GB peak allocated memory; Oscar
+took 3.37 seconds including its worker startup. The Oscar record's clean source,
+data, workers, device and Slurm identity were verified and its disposable group
+deleted. These are execution checks with an explicit stability failure, not
+successful scientific fitting.
+
+The frozen five-seed scientific array `6728199` is running from clean revision
+`9e56993` in `/oscar/scratch/ezhan153/pure-cifar-9e56993`, two L40S tasks at a
+time. Initial seeds trained finite full-data epochs at approximately 14 seconds
+per epoch. No frozen hyperparameters were changed in response to smoke failures.
+Scientific completion and final accuracy are pending; consult the online W&B
+group `pure-cifar10-resnet18-v1` for current outcomes.
+
+Data transport used a mirror after the original Windows downloads failed with
+TLS integrity errors. The archive MD5 matched torchvision's official
+`c58f30108f718f92721af3b95e74349a`; all extracted training/test batch checksums
+were verified by torchvision. A supported alternative SSH cipher allowed the
+verified archive to be transferred locally. Data content and recipe are unchanged.
