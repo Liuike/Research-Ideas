@@ -16,6 +16,13 @@ PLAN_FILE="${1:?Pass a JSONL plan created with experiment plan --plan-file}"
 TASK_ID="${SLURM_ARRAY_TASK_ID:-0}"
 
 cd "${PROJECT_ROOT}"
+unset LD_LIBRARY_PATH
+unset VIRTUAL_ENV
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${PROJECT_ROOT}/.cache/uv}"
+export WANDB_DIR="${WANDB_DIR:-${PROJECT_ROOT}/wandb}"
+export WANDB_DATA_DIR="${WANDB_DATA_DIR:-${PROJECT_ROOT}/wandb}"
+export WANDB_CONFIG_DIR="${WANDB_CONFIG_DIR:-${PROJECT_ROOT}/wandb}"
+export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-${PROJECT_ROOT}/wandb}"
 if [[ "${PLAN_FILE}" != /* ]]; then
   PLAN_FILE="${PROJECT_ROOT}/${PLAN_FILE}"
 fi
@@ -101,25 +108,6 @@ if [[ "${TASK}" == "none" || "${METHOD}" == "none" || "${SEED}" == "none" || \
   exit 1
 fi
 
-UV_BIN="${UV_BIN:-}"
-if [[ -z "${UV_BIN}" && -x "${PROJECT_ROOT}/.uv-bootstrap/bin/uv" ]]; then
-  UV_BIN="${PROJECT_ROOT}/.uv-bootstrap/bin/uv"
-fi
-if [[ -z "${UV_BIN}" ]]; then
-  UV_BIN="$(command -v uv || true)"
-fi
-if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
-  echo "uv is unavailable; provision the locked Oscar environment first" >&2
-  exit 1
-fi
-
-unset LD_LIBRARY_PATH
-unset VIRTUAL_ENV
-export UV_CACHE_DIR="${UV_CACHE_DIR:-${PROJECT_ROOT}/.cache/uv}"
-export WANDB_DIR="${WANDB_DIR:-${PROJECT_ROOT}/wandb}"
-export WANDB_DATA_DIR="${WANDB_DATA_DIR:-${PROJECT_ROOT}/wandb}"
-export WANDB_CONFIG_DIR="${WANDB_CONFIG_DIR:-${PROJECT_ROOT}/wandb}"
-export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-${PROJECT_ROOT}/wandb}"
 COMMAND=("${UV_BIN}" run --frozen --no-sync "${PLAN_COMMAND[@]}")
 printf -v FINAL_COMMAND "%q " "${COMMAND[@]}"
 
