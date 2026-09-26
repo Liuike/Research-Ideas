@@ -115,6 +115,11 @@ fi
 
 unset LD_LIBRARY_PATH
 unset VIRTUAL_ENV
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${PROJECT_ROOT}/.cache/uv}"
+export WANDB_DIR="${WANDB_DIR:-${PROJECT_ROOT}/wandb}"
+export WANDB_DATA_DIR="${WANDB_DATA_DIR:-${PROJECT_ROOT}/wandb}"
+export WANDB_CONFIG_DIR="${WANDB_CONFIG_DIR:-${PROJECT_ROOT}/wandb}"
+export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-${PROJECT_ROOT}/wandb}"
 COMMAND=("${UV_BIN}" run --frozen --no-sync "${PLAN_COMMAND[@]}")
 printf -v FINAL_COMMAND "%q " "${COMMAND[@]}"
 
@@ -136,5 +141,6 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
 fi
 
 mkdir -p "${PROJECT_ROOT}/logs/slurm"
+mkdir -p "${PROJECT_ROOT}/wandb"
 export PYTHONPATH="${PROJECT_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 "${COMMAND[@]}"
