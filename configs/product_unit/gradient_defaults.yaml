@@ -1,0 +1,36 @@
+# Frozen untuned defaults for paired optimizer comparisons.
+protocol: punn-gradient-defaults-v1
+tasks: [f1, f4]
+methods: [sgd, adam, adamw, muon_moonlight]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+data_seed_offset: 100000
+epochs: 500
+log_every: 50
+device: cpu
+stage: exploratory
+run_group: punn-gradient-defaults-v1
+recipes:
+  sgd:
+    learning_rate: 0.1
+    momentum: 0.9
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false
+  adam:
+    learning_rate: 0.001
+    momentum: 0.9
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false
+  adamw:
+    learning_rate: 0.001
+    momentum: 0.9
+    weight_decay: 0.01
+    aux_learning_rate: 0.001
+    secondary: true
+  muon_moonlight:
+    learning_rate: 0.02
+    momentum: 0.95
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false

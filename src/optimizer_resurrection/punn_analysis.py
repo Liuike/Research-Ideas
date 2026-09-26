@@ -18,9 +18,12 @@ from .tracking import RunRecord, load_wandb_credentials, require_online_wandb, w
 
 
 def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[str, Any]:
+    expand, parse = expand_config, parse_args
+    if config["protocol"] == "punn-gradient-defaults-v1":
+        from .punn_gradients import expand_config as expand, parse_args as parse
     expected = {}
-    for command in expand_config(config):
-        args = parse_args(command[3:])
+    for command in expand(config):
+        args = parse(command[3:])
         if args.condition_id in expected:
             raise ValueError(f"duplicate expected condition: {args.condition_id}")
         expected[args.condition_id] = args
@@ -77,6 +80,18 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
         groups[(args.task, args.method)].append(record)
     if any(len(values) != 1 for values in digests.values()):
         raise ValueError("paired methods used different datasets")
+    if config["protocol"] == "punn-gradient-defaults-v1":
+        initializations: dict[tuple[str, int], set[str]] = defaultdict(set)
+        for condition_id, record in observed.items():
+            args = expected[condition_id]
+            if record.summary.get("order_seed") != args.seed + 1_000_003:
+                raise ValueError("minibatch order seed mismatch")
+            digest = record.summary.get("initialization_digest")
+            if not digest:
+                raise ValueError("missing initialization digest")
+            initializations[(args.task, args.seed)].add(digest)
+        if any(len(values) != 1 for values in initializations.values()):
+            raise ValueError("paired methods used different initializations")
     rows = []
     for (task, method), group in sorted(groups.items()):
         good = [record for record in group if record.summary["terminal_outcome"] == "completed"]
@@ -90,6 +105,7 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
             values = [float(record.summary[metric]) for record in good]
             row[f"mean_{metric}"] = statistics.mean(values) if values else None
             row[f"sd_{metric}"] = statistics.stdev(values) if len(values) > 1 else None
+            row[f"median_{metric}"] = statistics.median(values) if values else None
         rows.append(row)
     paired_rows = []
     if {"sgd", "pso", "de"}.issubset(config["methods"]):
@@ -129,7 +145,11 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args(argv)
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
-    expand_config(config)
+    if config["protocol"] == "punn-gradient-defaults-v1":
+        from .punn_gradients import expand_config as expand_gradients
+        expand_gradients(config)
+    else:
+        expand_config(config)
     credentials = load_wandb_credentials()
     require_online_wandb()
     import wandb

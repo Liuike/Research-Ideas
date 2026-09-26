@@ -1,0 +1,35 @@
+protocol: punn-gradient-defaults-v1
+tasks: [f1, f4]
+methods: [sgd, adam, adamw, muon_moonlight]
+seeds: [0]
+data_seed_offset: 100000
+epochs: 2
+log_every: 1
+device: cpu
+stage: engineering-smoke
+run_group: punn-gradient-smoke-v1
+recipes:
+  sgd:
+    learning_rate: 0.1
+    momentum: 0.9
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false
+  adam:
+    learning_rate: 0.001
+    momentum: 0.9
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false
+  adamw:
+    learning_rate: 0.001
+    momentum: 0.9
+    weight_decay: 0.01
+    aux_learning_rate: 0.001
+    secondary: true
+  muon_moonlight:
+    learning_rate: 0.02
+    momentum: 0.95
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false
