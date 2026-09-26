@@ -89,3 +89,65 @@ $env:GIT_CONFIG_VALUE_0 = (Get-Location).Path.Replace('\', '/')
 Analysis rejects missing/duplicate cells, incomplete uploaded-landscape status,
 broken dataset/initialization/order pairing, or inconsistent clean source
 provenance. The analysis W&B run identifies all 180 source runs.
+
+## Completed local rerun, 2026-09-26
+
+The registered 180-cell plan completed locally with four workers from clean
+revision `af2d7cf72991aa28f0066ec3988e7c867f455f32`, source-tree digest
+`ff8e533d42b37929f2e4c49aec50b4313b50e375b953805b466bf3f81e34c40c`.
+The [strict paired analysis](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/iyogzx2n)
+accepted all 180 unique conditions and verified source consistency, shared
+data/initializations/minibatch order, and identical raw global landscape
+samples across methods within each task/seed. All 180 immutable artifact
+manifests contain the required files. In total they retain **84,936 parameter
+states and 2,053 landscape slices**, including the available states/slices for
+failed training runs. There were no recording or upload failures.
+
+| Task | Method | Finite completions / 30 | Numerical failures | Mean test MSE of finite completions |
+| --- | --- | ---: | ---: | ---: |
+| f1 | SGD | 27 | 3 | 0.072275 |
+| f1 | PSO | 30 | 0 | 0.045026 |
+| f1 | DE | 30 | 0 | 0.045263 |
+| f4 | SGD | 22 | 8 | 0.260680 |
+| f4 | PSO | 30 | 0 | 0.015858 |
+| f4 | DE | 30 | 0 | 0.016789 |
+
+The excluded numerical-failure seeds are f1 SGD **0, 3, 12** and f4 SGD
+**0, 1, 4, 18, 20, 21, 25, 29**. They remain in the 180-run accounting and
+retain artifacts; they are excluded only from finite-loss means. SGD failed
+or had higher test MSE than both population methods in 19/30 f1 and 27/30 f4
+pairs. Finite completion does not by itself establish successful learning.
+
+Compared with the earlier Oscar replication, population-method mean test
+losses are nearly unchanged. SGD outcomes differ: the old study had one f1
+and eleven f4 numerical failures. For f1 seed 3, running the original
+`6a370b1` training source locally without recording reproduced the new failure
+bit for bit, with the same initial loss and dataset as the Oscar record. This
+rules out the recorder as the cause for that case; the precise cause of the
+Windows/Linux arithmetic difference remains unverified. Local Python is
+3.11.15 versus 3.11.11 on Oscar, within the registered Python 3.11 pin; locked
+dependency versions match. Treat this as a new local replication rather than
+an exact replay of Oscar's SGD outcomes.
+
+Validation included 76 focused unit tests, six online CPU reference smoke
+cells, six online GPU reference smoke cells, direct scalar-model checks of
+downloaded f1/f4 artifacts, and complete manifest verification. One finished
+f4 PSO record (`h9zo1u97`) returned an empty online summary despite a committed
+complete artifact. Its original W&B-managed `wandb-summary.json` matched the
+artifact's provenance and results; that exact summary was restored and the
+recovery recorded in W&B before strict analysis passed. No experiment was
+replaced or rerun to change an outcome.
+
+The analysis run also contains `punn-landscape-example-iyogzx2n:v0`: an
+illustrative 2×4 comparison of the shared initialization and final SGD/PSO/DE
+slices for paired seed 2, using original CPU reference losses. Directions are
+shared; each plane is centered on its own model. This single-seed figure is
+not an aggregate landscape statistic.
+
+The results support the paper's broad population-optimizer reliability
+observation on these two regression cases. Raw walks and wider-domain losses
+are now available for landscape comparisons, but the paper's complete
+gradient/entropy/neutrality/FDC analysis and SUNN/oversized-architecture
+baselines have not been replicated. Reconstructed sampling choices and
+unavailable author datasets still prevent an exact numeric landscape-study
+replication claim.
