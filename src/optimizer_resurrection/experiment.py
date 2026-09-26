@@ -53,6 +53,9 @@ def expand_config(
 ) -> list[list[str]]:
     """Expand committed study configs into auditable one-run commands."""
     commands: list[list[str]] = []
+    if config.get("protocol") == "pure-cifar10-resnet18-v1":
+        from .pure_cifar import expand_config as expand_pure
+        return expand_pure(config)
     if config.get("protocol") == "punn-gradient-defaults-v1":
         from .punn_gradients import expand_config as expand_punn_gradients
         return expand_punn_gradients(config)

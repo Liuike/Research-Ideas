@@ -1,0 +1,20 @@
+# Disposable one-epoch L40S launch check; delete its W&B group after verification.
+protocol: pure-cifar10-resnet18-v1
+seeds: [999]
+data_seed_offset: 100000
+epochs: 1
+batch_size: 128
+learning_rate: 0.01
+momentum: 0.9
+weight_decay: 0.001
+milestones: []
+gamma: 0.1
+device: cuda
+num_workers: 4
+data_dir: data/cifar10
+download: false
+train_examples: 1024
+test_examples: 256
+secondary: true
+stage: engineering-smoke
+run_group: pure-cifar-oscar-smoke-v1
