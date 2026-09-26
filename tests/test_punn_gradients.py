@@ -1,5 +1,7 @@
+import random
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 import pytest
@@ -34,6 +36,47 @@ def test_sgd_preserves_historical_initialization_order_and_update():
     assert current["train_mse"] == previous.train_mse
     assert current["initial_train_mse"] == previous.initial_train_mse
     assert current["pattern_evaluations"] == previous.pattern_evaluations
+
+
+def test_state_observer_is_copy_only_and_preserves_training_rng():
+    trial_args = args("adamw", epochs=2, log_every=1)
+    expected = run_trial(trial_args)
+    expected_rng = (random.getstate(), np.random.get_state(), torch.get_rng_state().clone())
+    states = []
+
+    def observer(epoch, kind, vector, population, losses):
+        states.append((epoch, kind, vector.clone(), population, losses))
+        random.random()
+        np.random.random()
+        torch.rand(1)
+        vector.fill_(123)
+
+    actual = run_trial(trial_args, on_state=observer)
+    actual_rng = (random.getstate(), np.random.get_state(), torch.get_rng_state().clone())
+    assert actual == expected
+    assert actual_rng[0] == expected_rng[0]
+    assert actual_rng[1][0] == expected_rng[1][0]
+    assert np.array_equal(actual_rng[1][1], expected_rng[1][1])
+    assert actual_rng[1][2:] == expected_rng[1][2:]
+    assert torch.equal(actual_rng[2], expected_rng[2])
+    assert [(epoch, kind) for epoch, kind, *_ in states] == [
+        (0, "initial"), (1, "epoch"), (2, "epoch"), (2, "final")
+    ]
+    assert all(population is None and losses is None for _, _, _, population, losses in states)
+    assert not torch.equal(states[0][2], states[-1][2])
+    assert torch.equal(states[-2][2], states[-1][2])
+
+
+def test_state_observer_receives_terminal_state_after_numerical_failure():
+    trial_args = args("sgd", learning_rate=1e8, epochs=2)
+    states = []
+    result = run_trial(trial_args, on_state=lambda *values: states.append(values))
+    assert result["numerical_failure"]
+    assert states[0][0:2] == (0, "initial")
+    terminal_epoch = result["failed_epoch"] or result["epochs_completed"]
+    assert states[-1][0] == terminal_epoch
+    assert states[-1][1] == "numerical_failure"
+    assert states[-1][2].numel() == 3
 
 
 def test_gradient_config_expands_all_requested_methods():

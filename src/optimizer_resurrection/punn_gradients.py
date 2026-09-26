@@ -7,12 +7,15 @@ import hashlib
 import itertools
 import json
 import math
+import random
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+import numpy as np
 import torch
+from torch.nn.utils import parameters_to_vector
 
 from .models import ProductUnitNetwork
 from .optim.param_groups import OptimizerBundle
@@ -46,7 +49,29 @@ def build_optimizer(model: ProductUnitNetwork, args: argparse.Namespace) -> Opti
     return OptimizerBundle(optimizer, None)
 
 
-def run_trial(args: argparse.Namespace, on_epoch=None) -> dict[str, Any]:
+def _call_observer(callback: Callable[..., None] | None, *values: Any) -> None:
+    """Call an observer without letting its random draws affect the run."""
+    if callback is None:
+        return
+    python_rng = random.getstate()
+    numpy_rng = np.random.get_state()
+    torch_rng = torch.get_rng_state()
+    cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else None
+    try:
+        callback(*values)
+    finally:
+        random.setstate(python_rng)
+        np.random.set_state(numpy_rng)
+        torch.set_rng_state(torch_rng)
+        if cuda_rng is not None:
+            torch.cuda.set_rng_state_all(cuda_rng)
+
+
+def run_trial(
+    args: argparse.Namespace,
+    on_epoch: Callable[[int, float | None], None] | None = None,
+    on_state: Callable[[int, str, torch.Tensor, torch.Tensor | None, torch.Tensor | None], None] | None = None,
+) -> dict[str, Any]:
     seed_everything(args.seed)
     torch.set_num_threads(1)
     dataset = make_dataset(args.task, args.data_seed)
@@ -54,6 +79,13 @@ def run_trial(args: argparse.Namespace, on_epoch=None) -> dict[str, Any]:
     model = ProductUnitNetwork(inputs, hidden, input_domain="real_complex", init_bound=1.0)
     init_digest = hashlib.sha256(b"".join(p.detach().numpy().tobytes() for p in model.parameters())).hexdigest()
     initial_mse = _finite_mse(model, dataset.train_x, dataset.train_y)
+
+    def record_state(epoch: int, kind: str) -> None:
+        if on_state is not None:
+            vector = parameters_to_vector(model.parameters()).detach().clone()
+            _call_observer(on_state, epoch, kind, vector, None, None)
+
+    record_state(0, "initial")
     optimizer = build_optimizer(model, args)
     order_seed = args.seed + 1_000_003
     generator = torch.Generator().manual_seed(order_seed)
@@ -89,12 +121,14 @@ def run_trial(args: argparse.Namespace, on_epoch=None) -> dict[str, Any]:
             break
         completed = epoch
         if on_epoch and (epoch == 1 or epoch % args.log_every == 0 or epoch == args.epochs):
-            on_epoch(epoch, _finite_mse(model, dataset.train_x, dataset.train_y))
+            _call_observer(on_epoch, epoch, _finite_mse(model, dataset.train_x, dataset.train_y))
+        record_state(epoch, "epoch")
     train_mse = _finite_mse(model, dataset.train_x, dataset.train_y)
     test_mse = _finite_mse(model, dataset.test_x, dataset.test_y)
     if train_mse is None or test_mse is None:
         failure_reason = failure_reason or "nonfinite_final_mse"
     failed = failure_reason is not None
+    record_state(failed_epoch or completed, "numerical_failure" if failed else "final")
     result = TrialResult(args.condition_id, args.task, args.method, args.seed,
                          args.data_seed, completed, failed_epoch, evaluations, 0,
                          train_mse, test_mse, initial_mse, max_grad, failed,

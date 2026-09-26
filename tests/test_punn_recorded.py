@@ -70,6 +70,28 @@ def test_original_recorded_condition_ids_remain_compatible_without_reference():
     assert parse_args(expand_config(config)[0][3:]).condition_id == "544ae0a928286c72306a4aefeca3ace31caa477ded9f6c474adacc4f531c0b6f"
 
 
+def test_adamw_recorded_plan_keeps_existing_recipe_and_requires_secondary_decay():
+    config = yaml.safe_load((ROOT / "configs/product_unit/adamw_landscape.yaml").read_text())
+    commands = expand_config(config)
+    assert len(commands) == 20
+    parsed = [parse_args(command[3:]) for command in commands]
+    assert len({args.condition_id for args in parsed}) == 20
+    for args in parsed:
+        assert args.method == "adamw" and args.protocol == "punn-adamw-recorded-v1"
+        assert args.learning_rate == .001 and args.weight_decay == .01
+        assert args.secondary == "true" and args.epochs == 500
+        assert args.data_seed == 100000 + args.seed
+        assert args.landscape_cpu_reference == "true"
+    with pytest.raises(SystemExit):
+        parse_args([*commands[0][3:], "--secondary", "false"])
+    with pytest.raises(SystemExit):
+        parse_args([*commands[0][3:], "--weight-decay", "nan"])
+    with pytest.raises(SystemExit):
+        parse_args([*commands[0][3:], "--protocol", PROTOCOL])
+    with pytest.raises(SystemExit):
+        parse_args([*commands[0][3:], "--method", "sgd"])
+
+
 @pytest.mark.parametrize("method", ["sgd", "pso", "de"])
 def test_state_recording_preserves_exact_training_result_and_keeps_terminal(method):
     from optimizer_resurrection.models import ProductUnitNetwork

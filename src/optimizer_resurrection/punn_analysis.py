@@ -14,12 +14,13 @@ import yaml
 
 from .punn_landscape import parse_args
 from .punn_protocol import expand_config
+from .punn_recorded import RECORDED_PROTOCOLS
 from .tracking import RunRecord, load_wandb_credentials, require_online_wandb, wandb_analysis_run
 
 
 def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[str, Any]:
     expand, parse = expand_config, parse_args
-    if config["protocol"] == "engelbrecht-gouldie-2024-recorded-v1":
+    if config["protocol"] in RECORDED_PROTOCOLS:
         from .punn_recorded import expand_config as expand, parse_args as parse
     if config["protocol"] == "punn-gradient-defaults-v1":
         from .punn_gradients import expand_config as expand, parse_args as parse
@@ -45,7 +46,7 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
             if record.config.get(key) != value:
                 raise ValueError(f"resolved config mismatch for {record.run_id}: {key}")
         outcome = record.summary.get("terminal_outcome")
-        if config["protocol"] == "engelbrecht-gouldie-2024-recorded-v1":
+        if config["protocol"] in RECORDED_PROTOCOLS:
             if record.summary.get("landscape_status") != "completed" or not record.summary.get("landscape_artifact"):
                 raise ValueError(f"missing completed landscape artifact: {record.run_id}")
             if int(record.summary.get("landscape_slices", 0)) < 1:
@@ -95,14 +96,14 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
         groups[(args.task, args.method)].append(record)
     if any(len(values) != 1 for values in digests.values()):
         raise ValueError("paired methods used different datasets")
-    if config["protocol"] == "engelbrecht-gouldie-2024-recorded-v1":
+    if config["protocol"] in RECORDED_PROTOCOLS:
         landscape_digests = defaultdict(set)
         for condition_id, record in observed.items():
             args = expected[condition_id]
             landscape_digests[(args.task, args.seed)].add(record.summary["landscape_samples_digest"])
         if any(len(values) != 1 for values in landscape_digests.values()):
             raise ValueError("paired methods used different global landscape samples")
-    if config["protocol"] in {"punn-gradient-defaults-v1", "engelbrecht-gouldie-2024-recorded-v1"}:
+    if config["protocol"] in RECORDED_PROTOCOLS | {"punn-gradient-defaults-v1"}:
         initializations: dict[tuple[str, int], set[str]] = defaultdict(set)
         for condition_id, record in observed.items():
             args = expected[condition_id]
@@ -167,7 +168,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args(argv)
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
-    if config["protocol"] == "engelbrecht-gouldie-2024-recorded-v1":
+    if config["protocol"] in RECORDED_PROTOCOLS:
         from .punn_recorded import expand_config as expand_recorded
         expand_recorded(config)
     elif config["protocol"] == "punn-gradient-defaults-v1":

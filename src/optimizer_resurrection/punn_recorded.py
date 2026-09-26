@@ -30,6 +30,8 @@ from .train import (_determinism_metadata, _environment_metadata, _git_metadata,
                     _source_tree_digest, seed_everything)
 
 PROTOCOL = "engelbrecht-gouldie-2024-recorded-v1"
+ADAMW_PROTOCOL = "punn-adamw-recorded-v1"
+RECORDED_PROTOCOLS = {PROTOCOL, ADAMW_PROTOCOL}
 RUNTIME = {"condition_id", "dry_run", "run_group", "run_name", "stage"}
 FIELDS = {"protocol", "tasks", "methods", "seeds", "data_seed_offset", "epochs",
           "population_size", "search_bound", "boundary", "learning_rate", "momentum",
@@ -37,14 +39,16 @@ FIELDS = {"protocol", "tasks", "methods", "seeds", "data_seed_offset", "epochs",
           "landscape_seed_offset", "slice_points", "slice_radius", "prw_steps",
           "mrw_steps", "uniform_per_dim", "dispersion_samples", "landscape_batch_size",
           "landscape_bounds"}
-OPTIONAL_FIELDS = {"landscape_cpu_reference"}
+OPTIONAL_FIELDS = {"landscape_cpu_reference", "weight_decay", "secondary"}
 
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--protocol", choices=[PROTOCOL], default=PROTOCOL)
+    parser.add_argument("--protocol", choices=sorted(RECORDED_PROTOCOLS), default=PROTOCOL)
     parser.add_argument("--task", choices=sorted(TASKS), required=True)
-    parser.add_argument("--method", choices=["sgd", "pso", "de"], required=True)
+    parser.add_argument("--method", choices=["sgd", "pso", "de", "adamw"], required=True)
+    parser.add_argument("--weight-decay", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--secondary", choices=["true", "false"], default=argparse.SUPPRESS)
     for name in ("seed", "data-seed"):
         parser.add_argument("--" + name, type=int, required=True)
     for name, default in (("epochs", 500), ("population-size", 20), ("log-every", 50),
@@ -68,6 +72,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--condition-id")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if args.protocol == ADAMW_PROTOCOL:
+        if args.method != "adamw" or not hasattr(args, "weight_decay") or not hasattr(args, "secondary"):
+            parser.error("AdamW protocol requires method=adamw and explicit weight-decay/secondary")
+        if not math.isfinite(args.weight_decay) or args.weight_decay < 0:
+            parser.error("weight-decay must be finite and nonnegative")
+        if args.weight_decay > 0 and args.secondary != "true":
+            parser.error("nonzero weight decay requires secondary=true")
+    elif args.method == "adamw" or hasattr(args, "weight_decay") or hasattr(args, "secondary"):
+        parser.error("AdamW and its recipe fields require the AdamW recorded protocol")
     for key in ("epochs", "log_every", "prw_steps", "mrw_steps", "uniform_per_dim",
                 "dispersion_samples", "landscape_batch_size"):
         if getattr(args, key) < 1:
@@ -92,7 +105,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def expand_config(config: dict[str, Any]) -> list[list[str]]:
-    if not FIELDS <= config.keys() or config.keys() - FIELDS - OPTIONAL_FIELDS or config.get("protocol") != PROTOCOL:
+    if not FIELDS <= config.keys() or config.keys() - FIELDS - OPTIONAL_FIELDS or config.get("protocol") not in RECORDED_PROTOCOLS:
         raise ValueError(f"invalid recorded PUNN config fields: missing={FIELDS-config.keys()} "
                          f"extra={config.keys()-FIELDS-OPTIONAL_FIELDS}")
     for axis in ("tasks", "methods", "seeds"):
@@ -281,6 +294,13 @@ def main(argv=None):
         "parameter_order": [{"name": n, "shape": list(p.shape)} for n, p in model.named_parameters()],
         "diagnostic_note": "Raw walks support later FLA; local slices and finite-difference summaries are not exact paper metric replications.",
     }
+    if args.protocol == ADAMW_PROTOCOL:
+        provenance.update({"training": "existing untuned AdamW recipe; CPU FP32 scalar objective, batch-one seeded order",
+                           "adam_betas": [0.9, 0.999], "adam_epsilon": 1e-8,
+                           "weight_decay": args.weight_decay, "secondary": args.secondary == "true",
+                           "optimizer_assignment": "AdamW on all parameters", "tuning_budget": 0,
+                           "gradient_clipping": False, "batch_size": 1,
+                           "extension_note": "AdamW is an optimizer extension, not a method tested in the 2024 paper."})
     import wandb
     run = wandb.init(project=credentials["WANDB_PROJECT"], entity=credentials["WANDB_ENTITY"],
                      name=args.run_name, group=args.run_group, job_type="punn-landscape-recorded",
@@ -292,7 +312,7 @@ def main(argv=None):
     }}}, allow_val_change=True)
     artifact = wandb.Artifact(f"punn-landscape-{run.id}", type="loss-landscape",
                               metadata={"condition_id": args.condition_id, "dataset_digest": dataset.digest,
-                                        "sampling_seed": sampling_seed, "protocol": PROTOCOL})
+                                        "sampling_seed": sampling_seed, "protocol": args.protocol})
     started = time.monotonic()
     try:
         _write_payload(artifact, "dataset.npz", {"train_x": dataset.train_x, "train_y": dataset.train_y,
@@ -320,14 +340,23 @@ def main(argv=None):
             if epoch == 1 or epoch % args.log_every == 0 or epoch == args.epochs:
                 run.log({"epoch": epoch, "train_mse": mse}, step=epoch)
 
-        result = run_trial(task=args.task, method=args.method, seed=args.seed, data_seed=args.data_seed,
-                           epochs=args.epochs, population_size=args.population_size,
-                           search_bound=args.search_bound, boundary=args.boundary,
-                           learning_rate=args.learning_rate, momentum=args.momentum,
-                           on_epoch=log_epoch, on_state=recorder, condition_id=args.condition_id)
+        if args.protocol == ADAMW_PROTOCOL:
+            from .punn_gradients import run_trial as run_gradient_trial
+            result_payload = run_gradient_trial(args, on_epoch=log_epoch, on_state=recorder)
+            if result_payload["initialization_digest"] != initialization_digest:
+                raise RuntimeError("recording and AdamW training initializations differ")
+        else:
+            result = run_trial(task=args.task, method=args.method, seed=args.seed, data_seed=args.data_seed,
+                               epochs=args.epochs, population_size=args.population_size,
+                               search_bound=args.search_bound, boundary=args.boundary,
+                               learning_rate=args.learning_rate, momentum=args.momentum,
+                               on_epoch=log_epoch, on_state=recorder, condition_id=args.condition_id)
+            result_payload = asdict(result)
+        if result_payload["dataset_digest"] != dataset.digest:
+            raise RuntimeError("recording and training datasets differ")
         counts = recorder.finish()
         with artifact.new_file("provenance.json", mode="w", encoding="utf-8") as handle:
-            json.dump({"config": vars(args), "provenance": provenance, "result": asdict(result)},
+            json.dump({"config": vars(args), "provenance": provenance, "result": result_payload},
                       handle, sort_keys=True, allow_nan=False)
         run.log_artifact(artifact)
         artifact.wait()
@@ -336,7 +365,7 @@ def main(argv=None):
                     *(f"global_bound_{bound:g}.npz" for bound in bounds)}
         if not required.issubset(artifact.manifest.entries):
             raise RuntimeError("uploaded landscape artifact is incomplete")
-        payload = {**asdict(result), **counts, "initialization_digest": initialization_digest,
+        payload = {**result_payload, **counts, "initialization_digest": initialization_digest,
                    "order_seed": args.seed + 1_000_003, "landscape_seed": sampling_seed,
                    "landscape_samples_digest": global_digest.hexdigest(),
                    "landscape_cpu_reference": args.landscape_cpu_reference == "true",
@@ -344,7 +373,7 @@ def main(argv=None):
                    "landscape_global_summaries": global_summaries,
                    "wall_seconds": time.monotonic()-started}
         run.summary.update(payload)
-        run.finish(exit_code=1 if result.numerical_failure else 0)
+        run.finish(exit_code=1 if result_payload["numerical_failure"] else 0)
     except BaseException:
         run.summary.update({"terminal_outcome": "failed", "landscape_status": "failed"})
         run.finish(exit_code=1)
