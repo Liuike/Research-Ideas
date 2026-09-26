@@ -32,3 +32,58 @@ include nonfinite loss, gradient, parameters, optimizer state, or final MSE;
 finite completion is not a claim of successful fitting. Online W&B is the
 authoritative result store, and analysis rejects missing/duplicate cells and
 checks data, initialization, minibatch-order seeds, and source consistency.
+
+## Results (2026-09-26)
+
+Oscar CPU array `6721431` ran all 80 cells from clean revision
+`ee7979eeb8529baf270077012c9bcf4dfba8c527`. The [validated W&B analysis](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/z5g4h498)
+contains the full resolved experiment record and source run IDs. Analysis
+verified all expected cells, one source revision/tree digest, paired datasets
+and initializations, order seeds, and the full 500-epoch budget for finite
+completions. There were no scheduler failures in this scientific array.
+
+MSE statistics below include only finite completions; failures are counted
+separately and are not assigned a finite error. Standard deviations describe
+variation across seeds, not uncertainty intervals.
+
+| Function | Method | Finite / attempted | Numerical failures | Mean train MSE | Mean test MSE ± SD | Median test MSE |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| f1 | SGD momentum | 9 / 10 | 1 | 0.078325 | 0.088335 ± 0.074170 | 0.058545 |
+| f1 | Adam | 10 / 10 | 0 | 0.044748 | 0.047922 ± 0.019739 | 0.056277 |
+| f1 | AdamW | 10 / 10 | 0 | 0.045543 | 0.048525 ± 0.019931 | 0.056816 |
+| f1 | Moonlight Muon | 10 / 10 | 0 | 0.038258 | 0.040961 ± 0.024534 | 0.044811 |
+| f4 | SGD momentum | 5 / 10 | 5 | 0.027396 | 0.089209 ± 0.140645 | 0.034131 |
+| f4 | Adam | 10 / 10 | 0 | 0.014367 | 0.013734 ± 0.005319 | 0.014723 |
+| f4 | AdamW | 10 / 10 | 0 | 0.015192 | 0.014283 ± 0.004456 | 0.014515 |
+| f4 | Moonlight Muon | 10 / 10 | 0 | 0.012191 | 0.011224 ± 0.005704 | 0.011183 |
+
+At these frozen recipes, Adam, AdamW, and Muon stayed finite on all seeds;
+SGD still reproduced numerical instability. Muon had the lowest observed
+mean and median test error on both functions. AdamW's decay did not improve
+mean error over Adam here. These are descriptive results of an untuned
+exploration; they do not establish an optimizer ranking after equal-budget
+tuning or a headline Muon/MM result under the main study gates.
+
+### Failed scientific seeds
+
+| Function | Method | Seed | Reason | Full epochs completed | W&B run |
+| --- | --- | ---: | --- | ---: | --- |
+| f1 | SGD | 0 | nonfinite gradient | 0 | `9dghineq` |
+| f4 | SGD | 0 | nonfinite gradient | 0 | `jwh8b53t` |
+| f4 | SGD | 1 | nonfinite loss | 0 | `hvid98wr` |
+| f4 | SGD | 2 | nonfinite gradient | 0 | `vi2z3p97` |
+| f4 | SGD | 4 | nonfinite loss | 0 | `o9eb85ya` |
+| f4 | SGD | 6 | nonfinite loss | 75 | `1i35skiu` |
+
+### Verification and launch recovery
+
+The locked local and Oscar environments passed 114 tests (one deselected),
+including forward/gradient checks, reference Moonlight updates, SGD matching,
+and pairing rejection tests. Shell syntax, representative dry runs, and Slurm
+test-only validation passed. Initial disposable smoke array `6721382` failed
+before training because plan decoding reached the full home UV cache. Moving
+cache defaults before the first UV call fixed this; repeated smoke array
+`6721411` produced all eight expected records (six finite, two recorded SGD
+numerical failures), with correct clean-source/Slurm metadata and pairing.
+The disposable Oscar W&B group was verified and deleted before the scientific
+array was submitted. Ignored scheduler logs are retained on Oscar for recovery.
