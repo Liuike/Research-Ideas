@@ -102,3 +102,135 @@ def test_differential_evolution_requires_four_members():
             epochs=0,
             population_size=3,
         )
+
+
+@pytest.mark.parametrize("optimizer", [particle_swarm, differential_evolution])
+def test_population_optimizer_epoch_callback_reports_each_generation(optimizer):
+    generations = []
+
+    def on_epoch(epoch, best_parameters, best_loss, population, losses):
+        generations.append(
+            (epoch, best_parameters, best_loss, population, losses)
+        )
+
+    result = optimizer(
+        lambda parameters: parameters.square().sum(),
+        dimension=2,
+        bounds=(-1.0, 1.0),
+        seed=23,
+        epochs=4,
+        population_size=6,
+        on_epoch=on_epoch,
+    )
+
+    assert [generation[0] for generation in generations] == [1, 2, 3, 4]
+    for _, best_parameters, best_loss, population, losses in generations:
+        assert best_parameters.shape == (2,)
+        assert population.shape == (6, 2)
+        assert losses.shape == (6,)
+        assert best_loss <= float(losses.min().item())
+    assert result.evaluations == 6 * 5
+
+
+@pytest.mark.parametrize("optimizer", [particle_swarm, differential_evolution])
+def test_population_optimizer_epoch_callback_cannot_mutate_optimizer_state(optimizer):
+    kwargs = dict(
+        objective=lambda parameters: parameters.square().sum(),
+        dimension=3,
+        bounds=(-2.0, 2.0),
+        seed=29,
+        epochs=7,
+        population_size=8,
+    )
+    baseline = optimizer(**kwargs)
+
+    def mutate_callback(_epoch, best_parameters, _best_loss, population, losses):
+        best_parameters.fill_(1000.0)
+        population.fill_(1000.0)
+        losses.fill_(1000.0)
+
+    with_callback = optimizer(**kwargs, on_epoch=mutate_callback)
+
+    assert torch.equal(with_callback.best_parameters, baseline.best_parameters)
+    assert with_callback.best_loss == baseline.best_loss
+    assert with_callback.evaluations == baseline.evaluations
+
+
+@pytest.mark.parametrize("optimizer", [particle_swarm, differential_evolution])
+def test_population_optimizer_batch_objective_matches_scalar_and_counts_rows(optimizer):
+    scalar_calls = 0
+    batch_rows = 0
+
+    def scalar_objective(parameters):
+        nonlocal scalar_calls
+        scalar_calls += 1
+        return parameters.square().sum()
+
+    def batch_objective(population):
+        nonlocal batch_rows
+        batch_rows += population.shape[0]
+        return population.square().sum(dim=1)
+
+    kwargs = dict(
+        dimension=3,
+        bounds=(-2.0, 2.0),
+        seed=31,
+        epochs=9,
+        population_size=8,
+    )
+    scalar_result = optimizer(scalar_objective, **kwargs)
+    batch_result = optimizer(scalar_objective, **kwargs, batch_objective=batch_objective)
+
+    assert torch.equal(batch_result.best_parameters, scalar_result.best_parameters)
+    assert batch_result.best_loss == scalar_result.best_loss
+    assert batch_result.evaluations == scalar_result.evaluations == 8 * 10
+    assert scalar_calls == 8 * 10
+    assert batch_rows == 8 * 10
+
+
+@pytest.mark.parametrize("optimizer", [particle_swarm, differential_evolution])
+@pytest.mark.parametrize("shape", [(4, 1), (3,)])
+def test_population_optimizer_rejects_invalid_batch_objective_shape(optimizer, shape):
+    with pytest.raises(ValueError, match="one-dimensional tensor with one value"):
+        optimizer(
+            lambda parameters: parameters.square().sum(),
+            dimension=2,
+            bounds=(-1.0, 1.0),
+            seed=37,
+            epochs=0,
+            population_size=4,
+            batch_objective=lambda population: torch.zeros(shape, dtype=torch.float32),
+        )
+
+
+@pytest.mark.parametrize("optimizer", [particle_swarm, differential_evolution])
+def test_population_optimizer_requires_float32_batch_objective(optimizer):
+    with pytest.raises(TypeError, match="float32 CPU tensor"):
+        optimizer(
+            lambda parameters: parameters.square().sum(),
+            dimension=2,
+            bounds=(-1.0, 1.0),
+            seed=41,
+            epochs=0,
+            population_size=4,
+            batch_objective=lambda population: torch.zeros(
+                population.shape[0], dtype=torch.float64
+            ),
+        )
+
+
+@pytest.mark.parametrize("optimizer", [particle_swarm, differential_evolution])
+def test_population_optimizer_maps_nonfinite_batch_losses_to_infinity(optimizer):
+    result = optimizer(
+        lambda parameters: parameters.square().sum(),
+        dimension=2,
+        bounds=(-1.0, 1.0),
+        seed=43,
+        epochs=0,
+        population_size=4,
+        batch_objective=lambda population: torch.full(
+            (population.shape[0],), float("nan"), dtype=torch.float32
+        ),
+    )
+    assert math.isinf(result.best_loss)
+    assert result.evaluations == 4

@@ -16,6 +16,10 @@ import torch
 
 
 Objective = Callable[[torch.Tensor], float | torch.Tensor]
+BatchObjective = Callable[[torch.Tensor], torch.Tensor]
+EpochCallback = Callable[
+    [int, torch.Tensor, float, torch.Tensor, torch.Tensor], None
+]
 Bounds = tuple[float | torch.Tensor, float | torch.Tensor]
 Boundary = Literal["clip", "reflect"]
 
@@ -39,6 +43,8 @@ def particle_swarm(
     population_size: int = 30,
     initial_vector: torch.Tensor | None = None,
     boundary: Boundary = "clip",
+    on_epoch: EpochCallback | None = None,
+    batch_objective: BatchObjective | None = None,
 ) -> PopulationResult:
     """Minimize a scalar objective with the paper's global-best PSO settings.
 
@@ -46,6 +52,9 @@ def particle_swarm(
     ``initial_vector`` replaces member zero, allowing optimizers to share a
     model initialization. ``epochs`` counts swarm updates, after the initial
     population evaluation. Inputs passed to ``objective`` are flat CPU tensors.
+    ``batch_objective``, when supplied, instead receives the whole population
+    matrix and must return one float32 CPU loss per member. ``on_epoch`` is
+    called after each update with the 1-based epoch and detached snapshots.
     """
     _validate_common(dimension, bounds, seed, epochs, population_size, boundary)
     lower, upper = _materialize_bounds(bounds, dimension)
@@ -60,9 +69,13 @@ def particle_swarm(
 
     evaluations = 0
     losses = torch.empty(population_size, dtype=positions.dtype)
-    for index in range(population_size):
-        losses[index] = _evaluate(objective, positions[index])
-        evaluations += 1
+    if batch_objective is None:
+        for index in range(population_size):
+            losses[index] = _evaluate(objective, positions[index])
+            evaluations += 1
+    else:
+        losses = _evaluate_batch(batch_objective, positions)
+        evaluations += population_size
 
     personal_best = positions.clone()
     personal_losses = losses.clone()
@@ -74,7 +87,7 @@ def particle_swarm(
     inertia = 0.7298
     cognitive = 1.496
     social = 1.496
-    for _ in range(epochs):
+    for epoch in range(1, epochs + 1):
         r_personal = torch.rand(positions.shape, generator=generator)
         r_global = torch.rand(positions.shape, generator=generator)
         velocities = (
@@ -86,15 +99,38 @@ def particle_swarm(
             positions + velocities, velocities, lower, upper, boundary
         )
 
-        for index in range(population_size):
-            loss = _evaluate(objective, positions[index])
-            evaluations += 1
-            if loss < float(personal_losses[index].item()):
-                personal_losses[index] = loss
-                personal_best[index] = positions[index]
-                if loss < global_loss:
-                    global_loss = loss
-                    global_best = positions[index].clone()
+        if batch_objective is None:
+            generation_losses = torch.empty_like(losses)
+            for index in range(population_size):
+                loss = _evaluate(objective, positions[index])
+                generation_losses[index] = loss
+                evaluations += 1
+                if loss < float(personal_losses[index].item()):
+                    personal_losses[index] = loss
+                    personal_best[index] = positions[index]
+                    if loss < global_loss:
+                        global_loss = loss
+                        global_best = positions[index].clone()
+        else:
+            generation_losses = _evaluate_batch(batch_objective, positions)
+            evaluations += population_size
+            for index in range(population_size):
+                loss = float(generation_losses[index].item())
+                if loss < float(personal_losses[index].item()):
+                    personal_losses[index] = loss
+                    personal_best[index] = positions[index]
+                    if loss < global_loss:
+                        global_loss = loss
+                        global_best = positions[index].clone()
+
+        if on_epoch is not None:
+            on_epoch(
+                epoch,
+                global_best.detach().clone(),
+                global_loss,
+                positions.detach().clone(),
+                generation_losses.detach().clone(),
+            )
 
     return PopulationResult(global_best, global_loss, evaluations)
 
@@ -109,13 +145,18 @@ def differential_evolution(
     population_size: int = 30,
     initial_vector: torch.Tensor | None = None,
     boundary: Boundary = "clip",
+    on_epoch: EpochCallback | None = None,
+    batch_objective: BatchObjective | None = None,
 ) -> PopulationResult:
     """Minimize with DE/rand/1/bin and the paper's beta/crossover settings.
 
     At least four population members are required by DE/rand/1. Each epoch is
     one complete generation: all trial vectors are formed from the current
     population, then selected together. ``boundary`` explicitly controls how
-    out-of-range trial coordinates are handled.
+    out-of-range trial coordinates are handled. ``batch_objective``, when
+    supplied, receives the whole population or trial matrix and must return
+    one float32 CPU loss per member. ``on_epoch`` is called after each
+    generation with the 1-based epoch and detached snapshots.
     """
     _validate_common(dimension, bounds, seed, epochs, population_size, boundary)
     if population_size < 4:
@@ -127,13 +168,17 @@ def differential_evolution(
     )
     losses = torch.empty(population_size, dtype=population.dtype)
     evaluations = 0
-    for index in range(population_size):
-        losses[index] = _evaluate(objective, population[index])
-        evaluations += 1
+    if batch_objective is None:
+        for index in range(population_size):
+            losses[index] = _evaluate(objective, population[index])
+            evaluations += 1
+    else:
+        losses = _evaluate_batch(batch_objective, population)
+        evaluations += population_size
 
     beta = 0.7
     crossover_probability = 0.3
-    for _ in range(epochs):
+    for epoch in range(1, epochs + 1):
         trials = torch.empty_like(population)
         trial_losses = torch.empty_like(losses)
         for target_index in range(population_size):
@@ -150,13 +195,27 @@ def differential_evolution(
         trials, _ = _apply_boundary(
             trials, torch.zeros_like(trials), lower, upper, boundary
         )
-        for index in range(population_size):
-            trial_losses[index] = _evaluate(objective, trials[index])
-            evaluations += 1
+        if batch_objective is None:
+            for index in range(population_size):
+                trial_losses[index] = _evaluate(objective, trials[index])
+                evaluations += 1
+        else:
+            trial_losses = _evaluate_batch(batch_objective, trials)
+            evaluations += population_size
 
         accepted = trial_losses <= losses
         population = torch.where(accepted.unsqueeze(1), trials, population)
         losses = torch.where(accepted, trial_losses, losses)
+
+        if on_epoch is not None:
+            best_index = int(torch.argmin(losses).item())
+            on_epoch(
+                epoch,
+                population[best_index].detach().clone(),
+                float(losses[best_index].item()),
+                population.detach().clone(),
+                losses.detach().clone(),
+            )
 
     best_index = int(torch.argmin(losses).item())
     return PopulationResult(
@@ -236,6 +295,23 @@ def _evaluate(objective: Objective, candidate: torch.Tensor) -> float:
     else:
         scalar = float(value)
     return scalar if math.isfinite(scalar) else math.inf
+
+
+def _evaluate_batch(
+    batch_objective: BatchObjective, population: torch.Tensor
+) -> torch.Tensor:
+    values = batch_objective(population.detach().clone())
+    if not isinstance(values, torch.Tensor):
+        raise TypeError("batch_objective must return a torch.Tensor")
+    if values.shape != (population.shape[0],):
+        raise ValueError(
+            "batch_objective must return a one-dimensional tensor with one value "
+            f"per candidate (expected {(population.shape[0],)}, got {tuple(values.shape)})"
+        )
+    if values.device.type != "cpu" or values.dtype != torch.float32:
+        raise TypeError("batch_objective must return a float32 CPU tensor")
+    values = values.detach().clone()
+    return torch.where(torch.isfinite(values), values, torch.full_like(values, math.inf))
 
 
 def _apply_boundary(

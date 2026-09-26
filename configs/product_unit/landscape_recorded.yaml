@@ -1,0 +1,26 @@
+# Original optimizer recipe; separately registered landscape diagnostics.
+protocol: engelbrecht-gouldie-2024-recorded-v1
+tasks: [f1, f4]
+methods: [sgd, pso, de]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+data_seed_offset: 100000
+epochs: 500
+population_size: 20
+search_bound: 1.0
+boundary: clip
+learning_rate: 0.1
+momentum: 0.9
+log_every: 50
+device: cpu
+stage: reproduction
+run_group: punn-landscape-recorded-v1
+landscape_device: cuda
+landscape_seed_offset: 2000000
+slice_points: 31
+slice_radius: 1.0
+prw_steps: 1000
+mrw_steps: 2000
+uniform_per_dim: 500
+dispersion_samples: 2000
+landscape_batch_size: 512
+landscape_bounds: training-and-paper-wide

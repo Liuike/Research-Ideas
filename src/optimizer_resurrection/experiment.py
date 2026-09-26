@@ -53,6 +53,9 @@ def expand_config(
 ) -> list[list[str]]:
     """Expand committed study configs into auditable one-run commands."""
     commands: list[list[str]] = []
+    if config.get("protocol") == "engelbrecht-gouldie-2024-recorded-v1":
+        from .punn_recorded import expand_config as expand_recorded
+        return expand_recorded(config)
     if config.get("protocol") == "pure-cifar10-resnet18-v1":
         from .pure_cifar import expand_config as expand_pure
         return expand_pure(config)
@@ -441,6 +444,7 @@ def main(argv: list[str] | None = None) -> None:
     plan.add_argument("--recipes", type=Path, help="Calibration-selected recipes for full_study.yaml")
     plan.add_argument("--run", action="store_true")
     plan.add_argument("--max-runs", type=int)
+    plan.add_argument("--workers", type=int, default=1, help="Concurrent local subprocesses for --run")
     plan.add_argument("--plan-file", type=Path, help="Write one JSON command array per line for Oscar")
     select = sub.add_parser("select-recipes")
     select.add_argument("--output", type=Path, default=Path("configs/frozen_recipes.json"))
@@ -451,6 +455,8 @@ def main(argv: list[str] | None = None) -> None:
     gates.add_argument("--run-group", help="Restrict completed W&B runs to one group")
     args = parser.parse_args(argv)
     if args.command == "plan":
+        if args.workers < 1:
+            parser.error("workers must be positive")
         recipes = json.loads(args.recipes.read_text()) if args.recipes else None
         commands = []
         for config_path in args.config:
@@ -460,10 +466,28 @@ def main(argv: list[str] | None = None) -> None:
         if args.plan_file:
             args.plan_file.parent.mkdir(parents=True, exist_ok=True)
             args.plan_file.write_text("".join(json.dumps(command) + "\n" for command in selected), encoding="utf-8")
-        for command in selected:
-            print(json.dumps(command))
-            if args.run:
-                subprocess.run([sys.executable, *command[1:]], check=True)
+        if args.run and args.workers > 1:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def execute(command):
+                print(json.dumps(command), flush=True)
+                return subprocess.run([sys.executable, *command[1:]], check=False).returncode
+
+            errors = []
+            with ThreadPoolExecutor(max_workers=args.workers) as pool:
+                futures = {pool.submit(execute, command): command for command in selected}
+                for future in as_completed(futures):
+                    code = future.result()
+                    if code:
+                        errors.append({"command": futures[future], "exit_code": code})
+            if errors:
+                print(json.dumps({"execution_failures": errors}))
+                raise SystemExit(1)
+        else:
+            for command in selected:
+                print(json.dumps(command), flush=True)
+                if args.run:
+                    subprocess.run([sys.executable, *command[1:]], check=True)
         print(json.dumps({"planned_runs": len(commands), "selected_runs": len(selected)}))
     elif args.command == "select-recipes":
         calibration = yaml.safe_load(args.config.read_text(encoding="utf-8"))

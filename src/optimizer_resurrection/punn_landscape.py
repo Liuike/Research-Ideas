@@ -152,6 +152,7 @@ def run_trial(
     momentum: float = 0.9,
     on_epoch: Callable[[int, float | None], None] | None = None,
     condition_id: str = "",
+    on_state: Callable[[int, str, torch.Tensor, torch.Tensor | None, torch.Tensor | None], None] | None = None,
 ) -> TrialResult:
     if task not in TASKS or method not in {"sgd", "pso", "de"}:
         raise ValueError("unsupported task or method")
@@ -164,13 +165,29 @@ def run_trial(
     input_dim, hidden_units, _ = TASKS[task]
     model = ProductUnitNetwork(input_dim, hidden_units, input_domain="real_complex", init_bound=1.0)
     initial_mse = _finite_mse(model, dataset.train_x, dataset.train_y)
+    if on_state is not None:
+        on_state(0, "initial", parameters_to_vector(model.parameters()).detach().clone(), None, None)
+
+    def sgd_epoch(epoch: int, mse: float | None) -> None:
+        if on_epoch is not None:
+            on_epoch(epoch, mse)
+        if on_state is not None:
+            on_state(epoch, "epoch", parameters_to_vector(model.parameters()).detach().clone(), None, None)
+
+    def population_epoch(epoch: int, best: torch.Tensor, loss: float,
+                         population: torch.Tensor, losses: torch.Tensor) -> None:
+        if on_epoch is not None:
+            on_epoch(epoch, loss if math.isfinite(loss) else None)
+        if on_state is not None:
+            on_state(epoch, "epoch", best, population, losses)
     max_gradient_norm: float | None = None
     numerical_failure = False
     failed_epoch: int | None = None
     if method == "sgd":
         completed, pattern_evaluations, max_gradient_norm, numerical_failure, failed_epoch = _run_sgd(
             model, dataset, seed=seed, epochs=epochs,
-            learning_rate=learning_rate, momentum=momentum, on_epoch=on_epoch,
+            learning_rate=learning_rate, momentum=momentum,
+            on_epoch=sgd_epoch if on_epoch is not None or on_state is not None else None,
         )
         full_objective_evaluations = 0
     else:
@@ -191,6 +208,7 @@ def run_trial(
             bounds=(-search_bound, search_bound), seed=seed, epochs=epochs,
             population_size=population_size, initial_vector=initial_vector,
             boundary=boundary,
+            on_epoch=population_epoch if on_epoch is not None or on_state is not None else None,
         )
         vector_to_parameters(population_result.best_parameters, model.parameters())
         completed = epochs
@@ -200,6 +218,9 @@ def run_trial(
     train_mse = _finite_mse(model, dataset.train_x, dataset.train_y)
     test_mse = _finite_mse(model, dataset.test_x, dataset.test_y)
     numerical_failure = numerical_failure or train_mse is None or test_mse is None
+    if on_state is not None:
+        on_state(failed_epoch or completed, "numerical_failure" if numerical_failure else "final",
+                 parameters_to_vector(model.parameters()).detach().clone(), None, None)
     return TrialResult(condition_id, task, method, seed, data_seed, completed, failed_epoch,
                        pattern_evaluations, full_objective_evaluations,
                        train_mse, test_mse, initial_mse, max_gradient_norm,
