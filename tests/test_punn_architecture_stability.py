@@ -181,3 +181,50 @@ def test_failure_helper_keeps_bounded_bad_tensor_locations():
         {"tensor": "linear.weight", "index": [0, 1]},
         {"tensor": "linear.weight", "index": [1, 0]},
     ]
+
+
+def test_terminal_summary_survives_delayed_history_metric_reduction():
+    class DelayedHistoryRun:
+        def __init__(self):
+            self.summary = {}
+            self.history = []
+
+        def log(self, values, step):
+            self.history.append((dict(values), step))
+
+        def reduce_history(self):
+            # W&B's delayed summary reduction writes the latest logged value
+            # for each history key after training has set the final summary.
+            for key, value in self.history[-1][0].items():
+                self.summary[key] = value
+
+    run = DelayedHistoryRun()
+    stability._log_training_epoch(run, {
+        "epoch": 1,
+        "train_mse": 31.7,
+        "objective": 31.7,
+        "examples_processed": 37,
+        "max_gradient_norm": 1.6e6,
+    })
+    terminal = {
+        "terminal_outcome": "numerical_failure",
+        "failure_phase": "training_forward",
+        "failed_epoch": 3,
+        "failure_examples_processed": 85,
+        "examples_processed": 85,
+        "train_mse": 22.4,
+        "objective": 22.4,
+        "max_gradient_norm": 2.3e8,
+    }
+    stability._record_terminal_result(run, terminal)
+    run.reduce_history()
+
+    history, step = run.history[0]
+    assert step == history["epoch"] == 1
+    assert "train_mse" not in history and "examples_processed" not in history
+    assert history["training/train_mse"] == 31.7
+    assert history["training/examples_processed"] == 37
+    assert run.summary["terminal_result"] == terminal
+    for key in ("examples_processed", "train_mse", "objective", "max_gradient_norm",
+                "failure_examples_processed", "failure_phase", "failed_epoch"):
+        assert run.summary[key] == terminal[key]

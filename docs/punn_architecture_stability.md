@@ -73,3 +73,69 @@ registered scientific plan and strict analysis:
 .venv/Scripts/uv.exe run --frozen --no-sync python -m optimizer_resurrection.experiment plan configs/product_unit/architecture_stability.yaml --run --workers 4
 .venv/Scripts/uv.exe run --frozen --no-sync python -m optimizer_resurrection.punn_architecture_analysis --config configs/product_unit/architecture_stability.yaml
 ```
+
+## Completed results (2026-09-26)
+
+All 480 registered runs finished: 245 finite completions and 235 numerical
+failures. There were no infrastructure failures or excluded seeds. Each cell
+contains all 30 seeds, including failures. Strict online analysis:
+[jwu371nr](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/jwu371nr).
+The W&B analysis artifact `punn-architecture-stability-jwu371nr:v0` contains
+`stability_report.json` (including every run ID, failed seed and failure epoch)
+and `numerical_stability.png`.
+
+| Task | Small failures / 30 | Oversized failures / 30 | Regularized oversized failures / 30 |
+| --- | ---: | ---: | ---: |
+| f1 | 0 | 2 | Not run |
+| f4 | 4 | 24 | Not run |
+| XOR | 0 | 0 | 0 |
+| Iris | 19 | 24 | 21 |
+| Wine | 11 | 30 | 30 |
+| Diabetes | 11 | 29 | 30 |
+
+Oversizing increased observed numerical failures on every task except XOR.
+At lambda=0.0001, L2 was not a dependable stability remedy. On Iris it rescued
+seeds 7, 9, 20, 25 and 28, but caused failures in seeds 12 and 15, for a net
+three additional finite completions. It rescued no Wine seed. On Diabetes it
+made seed 7 fail at epoch 69; that seed was the only finite oversized run.
+These are descriptive paired observations, not a claim of statistical
+significance or an exact replication of the authors' classification numbers.
+
+All initial full-training objectives were finite. Of 235 failures, 233 first
+occurred in the training forward pass, one during backward computation, and
+one during final test evaluation (small Iris seed 17, after 500 finite training
+epochs). There were 221 first-epoch failures. Every oversized f4/Wine failure
+and all 29 oversized Diabetes failures occurred in epoch 1. Later failures
+also occurred, up to epoch 429 during training, so a brief smoke alone would
+miss some instability.
+
+Finite completion does not mean good learning or well-behaved magnitudes.
+For example, oversized f1 seed 0 completed with a maximum finite gradient
+norm of 1.36e15 and parameter magnitude of 1.34e14; its test MSE was 0.06747.
+Both this run (`yj5xwwtk`) and small f1 seed 0 (`t9t2fj11`) were independently
+replayed from their archived dataset tensors. Outcomes, initialization,
+processed-example counts and numerical metrics matched, allowing one
+floating-point serialization step in a gradient maximum.
+
+All scientific cells used clean committed source
+`504b9ce37ff01f57ce5a4a79063d588b18c035fc`, with source-tree digest
+`f947b110fbeffea6af503dd0570ea5651f5b5bc5cc5ca657b59d57a8042a4008`.
+Before launch, 56 focused unit tests passed and all 16 online CPU engineering
+smokes were checked. Afterward, all 480 dataset artifact manifests and all
+180 unique task/data-seed tensor datasets passed readback/digest checks;
+failure sample locations and dedicated failure counters were verified.
+The two-file analysis artifact was downloaded and its figure visually checked.
+
+An audit found that W&B's delayed history reductions can replace generic
+terminal summary metrics on runs failing after a logged epoch with that
+earlier history value. Failure outcome, reason, phase, epoch, sample location
+and `failure_examples_processed` are unaffected, as are the final metrics of
+finite completions (epoch 500 is always logged). Use the dedicated failure
+counter for failure progress. Generic failed-run `examples_processed`, last
+finite MSE/objective and maxima must not be treated as exact terminal values;
+recovering them would require replay. The comparison above does not use those
+affected fields. Subsequent code separates history into `training/` metrics
+and stores a separate `terminal_result` snapshot; the completed sweep retains
+its original scientific revision and records.
+The logging fix and strict analysis tests passed together (22 tests), including
+a simulated delayed history reduction that preserves the terminal snapshot.

@@ -576,6 +576,21 @@ def _log_dataset_artifact(run: Any, args: argparse.Namespace, dataset: Any,
     return str(logged.name)
 
 
+def _log_training_epoch(run: Any, values: dict[str, Any]) -> None:
+    """Keep live epoch history separate from terminal summary metric names."""
+    epoch = values["epoch"]
+    record = {"epoch": epoch}
+    record.update({f"training/{key}": value for key, value in values.items() if key != "epoch"})
+    run.log(record, step=epoch)
+
+
+def _record_terminal_result(run: Any, result: dict[str, Any]) -> None:
+    """Publish both the nested authoritative snapshot and legacy flat fields."""
+    snapshot = dict(result)
+    run.summary.update(snapshot)
+    run.summary["terminal_result"] = snapshot
+
+
 def main(argv: list[str] | None = None) -> dict[str, Any] | None:
     args = parse_args(argv)
     if args.dry_run:
@@ -648,9 +663,9 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
                            "dataset_artifact": dataset_artifact}, allow_val_change=True)
         run.summary["dataset_artifact"] = dataset_artifact
         run.summary["dataset_digest"] = digest
-        result = run_trial(args, lambda values: run.log(values, step=values["epoch"]),
+        result = run_trial(args, lambda values: _log_training_epoch(run, values),
                            dataset_pair=(dataset, data_metadata))
-        run.summary.update(result)
+        _record_terminal_result(run, result)
     except BaseException:
         run.summary["terminal_outcome"] = "failed"
         run.finish(exit_code=1)
