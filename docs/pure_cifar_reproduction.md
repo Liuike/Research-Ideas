@@ -264,4 +264,113 @@ CPUs, 32 GB RAM and a twelve-hour limit. Clean scientific revision:
 `aa064504d03d396443c3e85427049dee4077d89d`; source-tree digest:
 `fef52000a3e685559dd628076bb0b8f62738b3e7541d0001b00deda630b512f0`.
 Checkout: `/oscar/scratch/ezhan153/pure-sgd-landscape-v1`.
-Full-run outcome and landscape interpretation pending.
+### Completed landscape run
+
+Array `6740232_0` completed with exit `0:0` in 1:36:03. Retained scheduler
+logs show successful W&B synchronization and no infrastructure failure.
+[Strict online analysis `fn39wxj6`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/fn39wxj6)
+verified the unique expected cell, clean source/data identity, all 160 epochs,
+62,560 gradient minibatches, eight probes, and all 35 slice masks per probe.
+No epochs or seeds were excluded. The authoritative scientific run is
+[`p5gr1t41`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/p5gr1t41).
+
+Final test accuracy was **87.08%**, cross-entropy **33.99200115118027**;
+training accuracy was 98.166% and loss 0.06058786812782287. Training and final
+evaluation remained finite. Parameters: **11,173,970**. Instrumented runtime
+was 5,750.916 seconds (95.85 minutes), including 3,562.493 seconds attributed
+to diagnostic calls; peak allocated CUDA memory was 1,334,112,768 bytes.
+The diagnostic timing excludes activation-hook overhead and is not an isolated
+GPU benchmark. Uninstrumented runtime was 2,118.982 seconds.
+
+Online pairing against uninstrumented run `kr2n6lak` verified exactly one
+training row for every epoch 1–160 in both runs. Training loss, accuracy and
+learning rate matched exactly in all 160 pairs (zero mismatches, maximum
+absolute difference zero); final training/test metrics also matched exactly.
+Initialization and full dataset digests matched the recorded reference, as
+did order/worker/augmentation seeds 1100003/2100003/3100003 and the frozen
+training settings. Instrumentation therefore preserved the recorded trajectory
+for this execution; this is observed replay, not a guarantee across hardware.
+
+#### Stochastic training gradients
+
+These are means/maxima of per-minibatch L2 norms, not norms of averaged gradients.
+Consecutive alignment is the mean cosine between adjacent minibatch gradients.
+
+| Epoch | Mean gradient L2 | Maximum gradient L2 | Mean adjacent cosine | Mean actual update L2 |
+|---|---:|---:|---:|---:|
+| 1 | 15.2737 | 45.3330 | -0.00374 | 0.152742 |
+| 40 | 6.3573 | 8.3552 | -0.02981 | 0.063580 |
+| 80 | 6.4073 | 11.0427 | -0.02054 | 0.064078 |
+| 81 | 5.3328 | 8.9867 | 0.00222 | 0.005333 |
+| 120 | 5.1342 | 8.9504 | -0.00253 | 0.005135 |
+| 121 | 5.0089 | 10.1029 | 0.00084 | 0.000501 |
+| 160 | 4.8543 | 8.6155 | 0.00129 | 0.000486 |
+
+Across epochs, mean gradient norms ranged 4.7226–15.2737; the largest measured
+minibatch norm was 45.3330 (epoch 1, zero-based batch 8). Epoch mean alignment
+ranged -0.04530–0.00332: successive stochastic gradients were nearly orthogonal
+or weakly opposed. Global mean exact-zero fractions ranged 8.01e-9–2.12e-6,
+providing no evidence of widespread exactly zero parameter gradients.
+This does not establish absence of weak gradients in particular directions.
+Weight-decay effective norms were close to data-gradient norms; at epoch 160
+they averaged 4.8550 versus 4.8543. Update magnitudes fell at the scheduled LR
+changes. Final group mean gradient norms were conv 3.7442, product exponents
+3.0485, BN 0.4141, head 0.2600, and threshold parameters 0.0790. Group norms
+are not normalized for their different parameter counts.
+
+Final learned input floors ranged 0.4582–0.5690, down from softplus(0)+1e-7.
+All eight threshold gradients were nonzero in every final-epoch minibatch.
+In the first-batch activation samples across all epochs/layers, 73.63–90.04%
+of inputs hit the learned floor. Pre-exponential values ranged -10.2419–11.3116;
+outputs were all finite, with no observed exact zeros or overflow/underflow-risk
+entries. These are activation samples, not checks of every training activation.
+
+#### Fixed-subset geometry and BatchNorm
+
+The following measurements use the same 32 normalized, unaugmented training
+examples in evaluation mode. They differ from the stochastic training objective.
+Rayleigh values refer to the regularized objective; trace values remove the L2
+contribution of 11,173.97. SE is the four-vector Hutchinson standard error.
+
+| Epoch | Eval CE | Batch-stat CE | Signed Rayleigh | Relative residual | Data trace ± SE | Valid slice points |
+|---|---:|---:|---:|---:|---:|---:|
+| 0 | 1.414e28 | 2.4413 | invalid | — | invalid | 14/35 |
+| 1 | 1.9567 | 1.9523 | 741.71 | 0.3131 | 2,953 ± 2,881 | 35/35 |
+| 40 | 498.6186 | 0.4477 | -3.409e13 | 0.0513 | -1.431e13 ± 1.677e13 | 35/35 |
+| 80 | 2.3910 | 0.1645 | -8.273e8 | 0.00224 | -3.795e8 ± 1.991e8 | 35/35 |
+| 81 | 0.019970 | 0.1343 | 8,333.52 | 0.000323 | 20,274 ± 4,358 | 35/35 |
+| 120 | 0.003623 | 0.1018 | 4,183.73 | 0.0000798 | 7,311 ± 1,655 | 35/35 |
+| 121 | 0.003140 | 0.1007 | 3,317.51 | 0.000850 | 6,570 ± 1,335 | 35/35 |
+| 160 | 0.002461 | 0.1117 | 2,403.24 | 0.00338 | 5,720 ± 1,129 | 35/35 |
+
+Initial Hutchinson estimation was nonfinite; 21 initial slice points were
+invalid. Those measurements are explicitly unavailable. Epoch-1 power residual
+is large, so its estimate is poorly converged. Later finite estimates include
+negative dominant-magnitude curvature at epochs 40/80; power iteration does not
+estimate the largest algebraic eigenvalue or the full spectrum. The noisy
+epoch-40 trace cannot establish its sign reliably. Threshold max operations
+also make this a piecewise-smooth objective; HVPs describe local autograd branches.
+
+The two sampled axes/grid show substantial sensitivity: at epoch 40 their
+finite CE values ranged 0.5721–9.958e13; at epoch 80, 0.1336–30.6337. At epoch
+160 they ranged 0.002461–3.9435 over the registered relative perturbations.
+All points after initialization were valid. These two directions do not
+characterize the complete landscape or prove optimizer superiority.
+
+BatchNorm mode differences were large at initialization and epoch 40, despite
+finite training gradients. At epoch 40 the fixed-subset eval gradient norm was
+4.100e7 versus the stochastic epoch mean 6.3573, while eval/batch-stat CE was
+498.62/0.4477. Thus large evaluation-mode geometry must not be mistaken for
+training-gradient explosion. At epoch 160 eval/batch-stat CE was 0.00246/0.11166,
+with one of 32 predictions differing. These subset comparisons do not identify
+the cause of test outliers.
+
+#### Final test loss tail
+
+Median per-example CE was 0.000479, 90th percentile 1.4544, 99th percentile
+8.1676, and maximum **306,684.8125**. The largest example alone contributes
+**90.22%** of total test loss, explaining the large mean despite 87.08% accuracy.
+Maximum absolute logit was 644,352.4375. Incorrect predictions had mean CE
+262.8236 and confidence 0.7789; correct predictions had mean CE 0.04040 and
+confidence 0.9665. This demonstrates an extreme loss tail, not its mechanism.
+No checkpoint or per-example identity was retained for further attribution.
