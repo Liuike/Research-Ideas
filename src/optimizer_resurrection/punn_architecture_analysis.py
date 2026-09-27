@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import math
 import statistics
@@ -123,14 +124,32 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
 def _terminal_snapshot(summary: dict[str, Any], run_id: str) -> dict[str, Any]:
     """Read the immutable terminal snapshot across W&B's nested-key encodings."""
     snapshot = summary.get("terminal_result")
-    if isinstance(snapshot, dict):
-        return snapshot
-    # W&B's API may expose nested summary objects as dotted keys.
-    flattened = {key[len("terminal_result."):]: value
+    if snapshot is not None and not isinstance(snapshot, dict):
+        raise ValueError(f"invalid terminal_result snapshot: {run_id}")
+    # W&B's API may expose nested summary objects as dotted keys, including
+    # children of terminal_result.failure_pattern and optimizer_betas.
+    result = deepcopy(snapshot) if isinstance(snapshot, dict) else {}
+    flattened = [(key[len("terminal_result."):], value)
                  for key, value in summary.items()
-                 if isinstance(key, str) and key.startswith("terminal_result.")}
-    if flattened:
-        return flattened
+                 if isinstance(key, str) and key.startswith("terminal_result.")]
+    flattened.sort(key=lambda item: (item[0].count("."), item[0]))
+    for path, value in flattened:
+        parts = path.split(".")
+        target = result
+        for part in parts[:-1]:
+            child = target.get(part)
+            if child is None:
+                child = target[part] = {}
+            elif not isinstance(child, dict):
+                raise ValueError(f"conflicting terminal_result snapshot paths: {run_id}: {path}")
+            target = child
+        leaf = parts[-1]
+        if leaf in target and isinstance(target[leaf], dict) and isinstance(value, dict):
+            target[leaf].update(deepcopy(value))
+        else:
+            target[leaf] = deepcopy(value)
+    if result:
+        return result
     raise ValueError(f"missing terminal_result snapshot: {run_id}")
 
 

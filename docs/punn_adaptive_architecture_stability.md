@@ -112,3 +112,20 @@ original condition ID and clean scientific provenance. The run's
 `545992ada1c008b446842af91f5d4de9af4909116899bb10fbcc94aa6286c4f6`;
 training was not repeated. Incremental readback now allows bounded ingestion
 retries but never accepts a missing terminal snapshot.
+
+An independent replay of oversized Iris AdamW seed 2 (`8oypylyz`) reproduced
+the epoch-one failure at update 52, sample index 97. Six `exp_avg_sq` entries
+were Inf (four product exponents and two output weights), while parameters
+and gradients remained finite; maximum gradient magnitude was
+`3.704903121954941e22`. Failure location, counters and state pattern matched the
+saved record, with only a final decimal serialization difference in the
+parameter maximum.
+
+The paired Muon record `jjx9yjk4` completed all 500 epochs finitely, with test
+MSE `0.05923113599419594`. A separate first-epoch replay inspected 112 unchanged
+Newton-Schulz inputs: no nonfinite inputs, no finite inputs with an infinite
+FP32 normalization norm, and no nonzero inputs giving an entirely zero
+direction. Its maximum gradient norm `2.787470588955501e18` matched the saved
+500-epoch maximum. This probe found no normalization overflow in that epoch;
+it does not rule it out in other epochs or cells. These were in-memory
+readback probes, not additional scientific conditions.

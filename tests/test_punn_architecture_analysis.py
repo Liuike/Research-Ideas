@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from optimizer_resurrection.punn_architecture_analysis import (
+    _terminal_snapshot,
     summarize_adaptive_records,
     summarize_records,
 )
@@ -134,15 +135,62 @@ def adaptive_fixture_records():
 
 def test_adaptive_summary_groups_methods_and_accepts_flattened_wandb_snapshot():
     config, records = adaptive_fixture_records()
-    result = records[0].summary.pop("terminal_result")
-    records[0].summary.update({"terminal_result." + key: value for key, value in result.items()})
+    record = next(record for record in records
+                  if record.config["method"] == "muon_moonlight")
+    result = record.summary.pop("terminal_result")
+    result.update(terminal_outcome="numerical_failure", numerical_failure=True,
+                  epochs_completed=0, failed_epoch=1, failure_phase="training_forward",
+                  failure_reason="nonfinite_prediction", initial_train_mse=None,
+                  train_mse=None, test_mse=None, objective=None)
+    result["failure_pattern"] = {
+        "tensor_names": ["exponents"],
+        "nonfinite_values": 2,
+        "examples": [{"tensor": "exponents", "index": [0, 1]}],
+    }
+    result["optimizer_betas"] = {"auxiliary_adamw": [0.9, 0.95]}
+    for key, value in result.items():
+        if key in {"failure_pattern", "optimizer_betas"}:
+            record.summary.update({f"terminal_result.{key}.{child}": child_value
+                                   for child, child_value in value.items()})
+        else:
+            record.summary["terminal_result." + key] = value
     report = summarize_adaptive_records(config, records)
+    snapshot = _terminal_snapshot(record.summary, record.run_id)
     assert report["expected_cells"] == report["observed_cells"] == 12
     assert {row["method"] for row in report["rows"]} == {"adamw", "muon_moonlight"}
     assert len(report["rows"]) == 6
     assert all(row["attempted"] == 2 for row in report["rows"])
     assert report["source_revision"] == "adaptive-revision"
     assert "Moonlight Muon" in report["numerical_failure_scope"]
+    assert snapshot["failure_pattern"] == result["failure_pattern"]
+    assert snapshot["optimizer_betas"] == result["optimizer_betas"]
+    assert next(row for row in report["rows"]
+                if row["task"] == record.config["task"]
+                and row["architecture"] == record.config["architecture"]
+                and row["method"] == "muon_moonlight")["numerical_failures"] == 1
+
+
+def test_terminal_snapshot_merges_mixed_paths_without_mutating_summary():
+    parent = {"tensor_names": ["exponents"], "metadata": {"source_values": [1]}}
+    dotted_parent = {"dotted_values": [2]}
+    summary = {
+        # Descendants deliberately precede their parents in insertion order.
+        "terminal_result.failure_pattern.metadata.marker": True,
+        "terminal_result.failure_pattern.metadata": dotted_parent,
+        "terminal_result.failure_pattern": parent,
+    }
+    original = deepcopy(summary)
+
+    snapshot = _terminal_snapshot(summary, "mixed-encoding")
+
+    assert snapshot["failure_pattern"] == {
+        "tensor_names": ["exponents"],
+        "metadata": {"source_values": [1], "dotted_values": [2], "marker": True},
+    }
+    assert summary == original
+    snapshot["failure_pattern"]["metadata"]["source_values"].append(3)
+    snapshot["failure_pattern"]["metadata"]["dotted_values"].append(4)
+    assert summary == original
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "identity", "pairing", "no_snapshot"])
