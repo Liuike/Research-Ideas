@@ -1,0 +1,45 @@
+protocol: punn-architecture-stability-v1
+conditions:
+- task: f1
+  architecture: small
+- task: f1
+  architecture: oversized
+- task: f4
+  architecture: small
+- task: f4
+  architecture: oversized
+- task: xor
+  architecture: small
+- task: xor
+  architecture: oversized
+- task: xor
+  architecture: regularized
+- task: iris
+  architecture: small
+- task: iris
+  architecture: oversized
+- task: iris
+  architecture: regularized
+- task: wine
+  architecture: small
+- task: wine
+  architecture: oversized
+- task: wine
+  architecture: regularized
+- task: diabetes
+  architecture: small
+- task: diabetes
+  architecture: oversized
+- task: diabetes
+  architecture: regularized
+seeds: [0]
+data_seed_offset: 100000
+epochs: 2
+learning_rate: 0.1
+momentum: 0.0
+regularization_lambda: 0.0001
+log_every: 1
+device: cpu
+stage: engineering-smoke
+run_group: punn-plain-sgd-architecture-cpu-smoke-v1
+

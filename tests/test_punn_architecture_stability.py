@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+import torch
+import yaml
+
+from optimizer_resurrection import punn_architecture_stability as stability
+from optimizer_resurrection.punn_architecture_data import make_architecture_dataset
+from optimizer_resurrection.punn_landscape import Dataset
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _args(task: str = "xor", architecture: str = "oversized", seed: int = 4,
+          regularization_lambda: float = 0.0, epochs: int = 2):
+    return stability.parse_args([
+        "--task", task,
+        "--architecture", architecture,
+        "--seed", str(seed),
+        "--data-seed", str(seed + 100000),
+        "--epochs", str(epochs),
+        "--regularization-lambda", str(regularization_lambda),
+        "--run-group", "test-architecture-stability",
+        "--stage", "test",
+    ])
+
+
+def test_architecture_stability_plan_has_480_unique_frozen_conditions():
+    config = yaml.safe_load((ROOT / "configs/product_unit/architecture_stability.yaml").read_text())
+    commands = stability.expand_config(config)
+    assert len(commands) == 16 * 30 == 480
+    parsed = [stability.parse_args(command[3:]) for command in commands]
+    assert len({args.condition_id for args in parsed}) == 480
+    assert all(args.method == "sgd" and args.learning_rate == 0.1 and args.momentum == 0.0
+               for args in parsed)
+    assert all(args.data_seed == args.seed + 100000 for args in parsed)
+    regularized = [args for args in parsed if args.architecture == "regularized"]
+    assert len(regularized) == 120
+    assert all(args.task in stability.CLASSIFICATION_TASKS and args.regularization_lambda == 0.0001
+               for args in regularized)
+    assert all(args.regularization_lambda == 0.0
+               for args in parsed if args.architecture != "regularized")
+
+
+def test_config_rejects_duplicate_conditions_and_regularized_regression():
+    config = yaml.safe_load((ROOT / "configs/product_unit/architecture_stability.yaml").read_text())
+    duplicate = {**config, "conditions": [*config["conditions"], config["conditions"][0]]}
+    with pytest.raises(ValueError, match="duplicate"):
+        stability.expand_config(duplicate)
+    invalid = {**config, "conditions": [{"task": "f1", "architecture": "regularized"}]}
+    with pytest.raises(ValueError, match="not registered"):
+        stability.expand_config(invalid)
+
+
+def test_selected_penalty_is_lambda_times_all_parameter_squares_including_bias():
+    model = stability.ProductUnitNetwork(1, 1, 1)
+    with torch.no_grad():
+        model.exponents.fill_(1.0)
+        model.output.weight.fill_(2.0)
+        model.output.bias.fill_(3.0)
+    observed = stability._regularization_term(model, 0.0001)
+    assert float(observed.detach()) == pytest.approx(0.0001 * (1.0 + 4.0 + 9.0))
+
+
+def test_zero_penalty_skips_squaring_extremely_large_parameters():
+    model = stability.ProductUnitNetwork(1, 1, 1)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.fill_(1e30)
+    assert float(stability._regularization_term(model, 0.0)) == 0.0
+
+
+def test_oversized_and_regularized_share_data_order_and_bitwise_initialization():
+    dataset_pair = make_architecture_dataset("xor", 100004)
+    oversized = stability.run_trial(_args("xor", "oversized"), dataset_pair=dataset_pair)
+    regularized = stability.run_trial(
+        _args("xor", "regularized", regularization_lambda=0.0001),
+        dataset_pair=dataset_pair,
+    )
+    assert oversized["initialization_digest"] == regularized["initialization_digest"]
+    assert oversized["dataset_digest"] == regularized["dataset_digest"]
+    assert oversized["order_seed"] == regularized["order_seed"] == 1_000_007
+    assert oversized["epochs_completed"] == regularized["epochs_completed"] == 2
+    assert oversized["terminal_outcome"] == regularized["terminal_outcome"] == "completed"
+    assert regularized["regularization_term"] > 0
+    assert regularized["objective"] == pytest.approx(
+        regularized["train_mse"] + regularized["regularization_term"]
+    )
+
+
+def test_nonfinite_initial_mse_is_a_recorded_failure_at_epoch_zero():
+    dataset, metadata = make_architecture_dataset("xor", 100004)
+    targets = dataset.train_y.clone()
+    targets[0, 0] = float("nan")
+    malformed = Dataset(dataset.train_x, targets, dataset.test_x, dataset.test_y, "")
+    digest = stability._dataset_digest(malformed)
+    malformed = replace(malformed, digest=digest)
+    result = stability.run_trial(_args(), dataset_pair=(malformed, metadata))
+    assert result["numerical_failure"] is True
+    assert result["terminal_outcome"] == "numerical_failure"
+    assert result["failure_reason"] == "nonfinite_train_mse"
+    assert result["failure_phase"] == "initialization"
+    assert result["failed_epoch"] == 0
+    assert result["examples_processed"] == 0
+
+
+def test_nonfinite_training_prediction_records_first_sample_location(monkeypatch):
+    original = stability.ProductUnitNetwork
+
+    class NonfiniteAfterInitialEvaluation(original):
+        calls = 0
+
+        def forward(self, x):
+            type(self).calls += 1
+            prediction = super().forward(x)
+            return prediction if type(self).calls == 1 else prediction * float("nan")
+
+    monkeypatch.setattr(stability, "ProductUnitNetwork", NonfiniteAfterInitialEvaluation)
+    dataset_pair = make_architecture_dataset("xor", 100004)
+    result = stability.run_trial(_args(), dataset_pair=dataset_pair)
+    assert result["failure_reason"] == "nonfinite_prediction"
+    assert result["failure_phase"] == "training_forward"
+    assert result["failed_epoch"] == 1
+    assert result["examples_processed"] == 1
+    assert result["failure_examples_processed"] == 1
+    assert result["failure_sample_index"] is not None
+    assert result["failure_within_epoch_position"] == 1
+
+
+def test_nonfinite_gradient_and_parameter_updates_are_distinct_failure_types(monkeypatch):
+    dataset_pair = make_architecture_dataset("xor", 100004)
+
+    original_class = stability.ProductUnitNetwork
+    created = []
+
+    class CapturedNetwork(original_class):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            created.append(self)
+
+    monkeypatch.setattr(stability, "ProductUnitNetwork", CapturedNetwork)
+    original_backward = torch.Tensor.backward
+
+    def backward_then_corrupt_gradient(tensor, *args, **kwargs):
+        outcome = original_backward(tensor, *args, **kwargs)
+        created[-1].exponents.grad.view(-1)[0] = float("nan")
+        return outcome
+
+    monkeypatch.setattr(torch.Tensor, "backward", backward_then_corrupt_gradient)
+    gradient_result = stability.run_trial(_args(), dataset_pair=dataset_pair)
+    assert gradient_result["failure_reason"] == "nonfinite_gradient"
+    assert gradient_result["failure_phase"] == "backward"
+
+    monkeypatch.setattr(torch.Tensor, "backward", original_backward)
+    original_step = torch.optim.SGD.step
+
+    def step_then_corrupt_parameter(optimizer, *args, **kwargs):
+        outcome = original_step(optimizer, *args, **kwargs)
+        with torch.no_grad():
+            optimizer.param_groups[0]["params"][0].view(-1)[0] = float("nan")
+        return outcome
+
+    monkeypatch.setattr(torch.optim.SGD, "step", step_then_corrupt_parameter)
+    parameter_result = stability.run_trial(_args(), dataset_pair=dataset_pair)
+    assert parameter_result["failure_reason"] == "nonfinite_parameter"
+    assert parameter_result["failure_phase"] == "optimizer_update"
+
+
+def test_failure_helper_keeps_bounded_bad_tensor_locations():
+    pattern = stability._tensor_pattern([
+        ("linear.weight", torch.tensor([[1.0, float("inf")], [float("nan"), 2.0]]))
+    ])
+    assert pattern is not None
+    assert pattern["tensor_names"] == ["linear.weight"]
+    assert pattern["nonfinite_values"] == 2
+    assert pattern["examples"] == [
+        {"tensor": "linear.weight", "index": [0, 1]},
+        {"tensor": "linear.weight", "index": [1, 0]},
+    ]
