@@ -120,6 +120,206 @@ def summarize_records(config: dict[str, Any], records: list[RunRecord]) -> dict[
             "source_run_ids": sorted(r.run_id for r in observed.values())}
 
 
+def _terminal_snapshot(summary: dict[str, Any], run_id: str) -> dict[str, Any]:
+    """Read the immutable terminal snapshot across W&B's nested-key encodings."""
+    snapshot = summary.get("terminal_result")
+    if isinstance(snapshot, dict):
+        return snapshot
+    # W&B's API may expose nested summary objects as dotted keys.
+    flattened = {key[len("terminal_result."):]: value
+                 for key, value in summary.items()
+                 if isinstance(key, str) and key.startswith("terminal_result.")}
+    if flattened:
+        return flattened
+    raise ValueError(f"missing terminal_result snapshot: {run_id}")
+
+
+def summarize_adaptive_records(config: dict[str, Any], records: list[RunRecord]) -> dict[str, Any]:
+    """Strictly summarize paired AdamW/Muon architecture stability records."""
+    from .punn_architecture_stability import expand_config, parse_args
+
+    expected = {}
+    for command in expand_config(config):
+        args = parse_args(command[3:])
+        if args.condition_id in expected:
+            raise ValueError("duplicate expected adaptive condition")
+        expected[args.condition_id] = args
+    observed = {}
+    revisions, source_digests = set(), set()
+    datasets, orders = defaultdict(set), defaultdict(set)
+    initializations_by_architecture = defaultdict(set)
+    initializations_regularized_pair = defaultdict(set)
+    groups = defaultdict(list)
+    for record in records:
+        if record.config.get("protocol") != config["protocol"]:
+            continue
+        key = record.config.get("condition_id")
+        if key not in expected or key in observed:
+            raise ValueError(f"unexpected or duplicate adaptive condition: {record.run_id}")
+        args = expected[key]
+        for field, value in vars(args).items():
+            if field not in {"dry_run", "condition_id"} and record.config.get(field) != value:
+                raise ValueError(f"adaptive resolved config mismatch: {record.run_id}: {field}")
+        result = _terminal_snapshot(record.summary, record.run_id)
+        # The run summary also carries flat terminal fields for W&B charting, but
+        # the snapshot is the source of truth and must agree with its config.
+        if result.get("protocol") != config["protocol"] or result.get("method") != args.method:
+            raise ValueError(f"terminal snapshot protocol/method mismatch: {record.run_id}")
+        identity_fields = ("condition_id", "task", "architecture", "seed", "data_seed",
+                           "epochs", "input_dim", "hidden_units", "output_dim",
+                           "regularization_lambda")
+        for field in identity_fields:
+            if result.get(field) != getattr(args, field):
+                raise ValueError(f"terminal snapshot identity mismatch: {record.run_id}: {field}")
+        recipe_fields = ("learning_rate", "momentum", "weight_decay", "aux_learning_rate", "secondary")
+        for field in recipe_fields:
+            if result.get(field) != getattr(args, field):
+                raise ValueError(f"terminal snapshot recipe mismatch: {record.run_id}: {field}")
+        outcome = result.get("terminal_outcome")
+        if outcome == "completed":
+            if record.state != "finished" or result.get("numerical_failure") is not False:
+                raise ValueError(f"invalid adaptive completion: {record.run_id}")
+            if result.get("epochs_completed") != config["epochs"]:
+                raise ValueError(f"incomplete adaptive budget: {record.run_id}")
+            for field in ["initial_train_mse", "train_mse", "test_mse", "objective"]:
+                if not math.isfinite(float(result.get(field, float("nan")))):
+                    raise ValueError(f"nonfinite/missing adaptive metric: {record.run_id}: {field}")
+        elif outcome == "numerical_failure":
+            if record.state != "finished" or result.get("numerical_failure") is not True:
+                raise ValueError(f"unfinished adaptive failure: {record.run_id}")
+            if not result.get("failure_reason") or not result.get("failure_phase"):
+                raise ValueError(f"missing adaptive failure details: {record.run_id}")
+            epoch = result.get("failed_epoch")
+            if type(epoch) is not int or not 0 <= epoch <= config["epochs"]:
+                raise ValueError(f"invalid adaptive failed epoch: {record.run_id}")
+        else:
+            raise ValueError(f"missing adaptive terminal outcome: {record.run_id}")
+
+        if config["stage"] not in {"engineering-smoke", "test"}:
+            provenance = record.config.get("provenance", {})
+            git = provenance.get("git", {})
+            revision = git.get("revision")
+            digest = provenance.get("source_tree", {}).get("digest")
+            if git.get("dirty") is not False or not revision or not digest:
+                raise ValueError(f"missing adaptive clean provenance: {record.run_id}")
+            revisions.add(revision)
+            source_digests.add(digest)
+
+        if not result.get("dataset_digest") or not result.get("initialization_digest"):
+            raise ValueError(f"missing adaptive identity digests: {record.run_id}")
+        artifact = result.get("dataset_artifact")
+        metadata = record.config.get("data_metadata", {})
+        if not artifact or record.config.get("dataset_artifact") != artifact:
+            raise ValueError(f"missing/mismatched adaptive data artifact: {record.run_id}")
+        for field, value in [("dataset_digest", result["dataset_digest"]),
+                             ("task", args.task), ("data_seed", args.data_seed)]:
+            if metadata.get(field) != value:
+                raise ValueError(f"adaptive dataset metadata mismatch: {record.run_id}: {field}")
+        from .punn_architecture_data import RAW_SOURCES
+        if args.task in RAW_SOURCES:
+            source = RAW_SOURCES[args.task]
+            recorded_source = metadata.get("raw_source", {})
+            if recorded_source.get("sha256") != source.sha256 or recorded_source.get("url") != source.url:
+                raise ValueError(f"unpinned adaptive dataset source: {record.run_id}")
+        if result.get("order_seed") != args.seed + 1_000_003:
+            raise ValueError(f"invalid adaptive order seed: {record.run_id}")
+
+        datasets[(args.task, args.seed)].add(result["dataset_digest"])
+        orders[(args.task, args.seed)].add(result["order_seed"])
+        initializations_by_architecture[(args.task, args.architecture, args.seed)].add(
+            result["initialization_digest"])
+        if args.architecture in {"oversized", "regularized"}:
+            initializations_regularized_pair[(args.task, args.seed)].add(result["initialization_digest"])
+        # Retain the resolved method and snapshot for the comparison CLI.
+        groups[(args.task, args.architecture, args.method)].append((record, result))
+        observed[key] = (record, result)
+
+    if set(observed) != set(expected):
+        raise ValueError(f"incomplete adaptive plan: {len(observed)}/{len(expected)}")
+    if any(len(values) != 1 for axis in [datasets, orders, initializations_by_architecture,
+                                         initializations_regularized_pair]
+           for values in axis.values()):
+        raise ValueError("adaptive method/architecture pairing mismatch")
+    if config["stage"] not in {"engineering-smoke", "test"} and (
+            len(revisions) != 1 or len(source_digests) != 1):
+        raise ValueError("inconsistent adaptive scientific source")
+
+    rows = []
+    for (task, architecture, method), runs in sorted(groups.items()):
+        finite = [(record, result) for record, result in runs
+                  if result["terminal_outcome"] == "completed"]
+        failed = [(record, result) for record, result in runs
+                  if result["terminal_outcome"] == "numerical_failure"]
+        rows.append({
+            "task": task, "architecture": architecture, "method": method,
+            "attempted": len(runs), "finite_completions": len(finite),
+            "numerical_failures": len(failed),
+            "failed_seeds": sorted(record.config["seed"] for record, _ in failed),
+            "failure_reasons": dict(Counter(result["failure_reason"] for _, result in failed)),
+            "failure_phases": dict(Counter(result["failure_phase"] for _, result in failed)),
+            "failed_epochs": {str(record.config["seed"]): result["failed_epoch"]
+                              for record, result in failed},
+            "run_ids": sorted(record.run_id for record, _ in runs),
+        })
+    return {"expected_cells": len(expected), "observed_cells": len(observed),
+            "source_revision": next(iter(revisions), None),
+            "source_tree_digest": next(iter(source_digests), None),
+            "pairing_verified": True, "rows": rows,
+            "numerical_failure_scope": (
+                "Flags record nonfinite values detected in monitored predictions, losses, gradients, "
+                "parameters, and optimizer states. Moonlight Muon's internal direction/normalization "
+                "intermediates are not instrumented; a transient overflow that yields finite tracked "
+                "values can escape detection, so finite completion covers monitored quantities only."),
+            "source_run_ids": sorted(record.run_id for record, _ in observed.values())}
+
+
+def _plot_adaptive_report(report: dict[str, Any], config: dict[str, Any], artifact: Any) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    tasks = list(dict.fromkeys(condition["task"] for condition in config["conditions"]))
+    methods = list(config["methods"])
+    labels = {"adamw": "AdamW", "muon_moonlight": "Muon"}
+    architectures = ("small", "oversized", "regularized")
+    columns = min(3, len(tasks))
+    row_count = math.ceil(len(tasks) / columns)
+    figure, axes = plt.subplots(row_count, columns,
+                                figsize=(5.0 * columns, 3.8 * row_count),
+                                layout="constrained", squeeze=False)
+    for axis, task in zip(axes.flat, tasks):
+        rows = {(row["architecture"], row["method"]): row for row in report["rows"]
+                if row["task"] == task}
+        arch_list = [arch for arch in architectures if any((arch, method) in rows for method in methods)]
+        slots, tick_labels, finite, failed, attempted = [], [], [], [], []
+        for arch_index, architecture in enumerate(arch_list):
+            for method_index, method in enumerate(methods):
+                row = rows[(architecture, method)]
+                slots.append(arch_index * len(methods) + method_index)
+                tick_labels.append(f"{architecture}\n{labels.get(method, method)}")
+                finite.append(row["finite_completions"])
+                failed.append(row["numerical_failures"])
+                attempted.append(row["attempted"])
+        axis.bar(slots, finite, color="#0072b2", label="Finite through final evaluation")
+        axis.bar(slots, failed, bottom=finite, color="#d55e00", label="Numerical failure")
+        for slot, failure_count, run_count in zip(slots, failed, attempted):
+            axis.text(slot, run_count + .3, f"{failure_count}/{run_count} failed",
+                      ha="center", fontsize=8)
+        axis.set_xticks(slots, tick_labels)
+        axis.set_ylim(0, (max(attempted) if attempted else 0) + 4)
+        axis.set_title(task)
+        axis.set_ylabel("Attempted seeds")
+    for axis in list(axes.flat)[len(tasks):]:
+        axis.set_visible(False)
+    handles, legend_labels = axes.flat[0].get_legend_handles_labels()
+    figure.legend(handles, legend_labels, loc="outside lower center", ncol=2, fontsize=9)
+    figure.suptitle("PUNN numerical stability | AdamW and Muon | CPU FP32, frozen recipes",
+                    fontsize=15)
+    with artifact.new_file("numerical_stability.png", mode="wb") as handle:
+        figure.savefig(handle, format="png", dpi=160)
+    plt.close(figure)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -130,48 +330,64 @@ def main(argv=None):
     import wandb
     runs = wandb.Api(timeout=60).runs(
         f"{credentials['WANDB_ENTITY']}/{credentials['WANDB_PROJECT']}",
-        filters={"group": config["run_group"]})
+        filters={"group": config["run_group"]}, per_page=1000)
     records = [RunRecord(str(r.id), str(r.state), dict(r.config), dict(r.summary), str(r.url))
                for r in runs if r.config.get("protocol") == config["protocol"]]
-    report = summarize_records(config, records)
+    adaptive = config.get("protocol") == "punn-adaptive-architecture-stability-v1"
+    report = summarize_adaptive_records(config, records) if adaptive else summarize_records(config, records)
+    analysis_config = {"config": config}
+    if adaptive:
+        analysis_config.update({"source_run_count": report["observed_cells"],
+                                "source_revision": report["source_revision"],
+                                "source_tree_digest": report["source_tree_digest"]})
+    else:
+        analysis_config["source_run_ids"] = report["source_run_ids"]
     with wandb_analysis_run("punn-architecture-stability-analysis", config["run_group"],
-                            "analysis", {"config": config, "source_run_ids": report["source_run_ids"]}) as run:
-        run.summary.update(report)
-        artifact = wandb.Artifact("punn-architecture-stability-" + str(run.id), type="analysis")
+                            "analysis", analysis_config) as run:
+        if adaptive:
+            run.summary.update({key: value for key, value in report.items()
+                                if key not in {"rows", "source_run_ids"}})
+        else:
+            run.summary.update(report)
+        artifact = wandb.Artifact(("punn-adaptive-architecture-stability-" if adaptive else
+                                   "punn-architecture-stability-") + str(run.id), type="analysis")
         with artifact.new_file("stability_report.json", mode="w") as handle:
             json.dump(report, handle, sort_keys=True)
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        tasks = list(dict.fromkeys(condition["task"] for condition in config["conditions"]))
-        columns = min(3, len(tasks))
-        figure, axes = plt.subplots(math.ceil(len(tasks) / columns), columns,
-                                    figsize=(4.5 * columns, 3.8 * math.ceil(len(tasks) / columns)),
-                                    layout="constrained", squeeze=False)
-        for axis, task in zip(axes.flat, tasks):
-            rows = sorted((row for row in report["rows"] if row["task"] == task),
-                          key=lambda row: ["small", "oversized", "regularized"].index(row["architecture"]))
-            positions = list(range(len(rows)))
-            failures = [row["numerical_failures"] for row in rows]
-            finite = [row["finite_completions"] for row in rows]
-            axis.bar(positions, finite, color="#0072b2", label="Finite through final evaluation")
-            axis.bar(positions, failures, bottom=finite, color="#d55e00", label="Numerical failure")
-            for index, row in enumerate(rows):
-                axis.text(index, row["attempted"] + .3,
-                          str(row["numerical_failures"]) + "/" + str(row["attempted"]) + " failed",
-                          ha="center", fontsize=9)
-            axis.set_xticks(positions, [row["architecture"] for row in rows])
-            axis.set_ylim(0, max(row["attempted"] for row in rows) + 4)
-            axis.set_title(task)
-            axis.set_ylabel("Attempted seeds")
-        for axis in list(axes.flat)[len(tasks):]:
-            axis.set_visible(False)
-        handles, labels = axes.flat[0].get_legend_handles_labels()
-        figure.legend(handles, labels, loc="outside lower center", ncol=2, fontsize=9)
-        figure.suptitle(f"PUNN numerical stability | plain SGD | {config['epochs']} epochs", fontsize=15)
-        with artifact.new_file("numerical_stability.png", mode="wb") as handle:
-            figure.savefig(handle, format="png", dpi=160)
-        plt.close(figure)
+        if adaptive:
+            _plot_adaptive_report(report, config, artifact)
+        else:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            tasks = list(dict.fromkeys(condition["task"] for condition in config["conditions"]))
+            columns = min(3, len(tasks))
+            figure, axes = plt.subplots(math.ceil(len(tasks) / columns), columns,
+                                        figsize=(4.5 * columns, 3.8 * math.ceil(len(tasks) / columns)),
+                                        layout="constrained", squeeze=False)
+            for axis, task in zip(axes.flat, tasks):
+                rows = sorted((row for row in report["rows"] if row["task"] == task),
+                              key=lambda row: ["small", "oversized", "regularized"].index(row["architecture"]))
+                positions = list(range(len(rows)))
+                failures = [row["numerical_failures"] for row in rows]
+                finite = [row["finite_completions"] for row in rows]
+                axis.bar(positions, finite, color="#0072b2", label="Finite through final evaluation")
+                axis.bar(positions, failures, bottom=finite, color="#d55e00", label="Numerical failure")
+                for index, row in enumerate(rows):
+                    axis.text(index, row["attempted"] + .3,
+                              str(row["numerical_failures"]) + "/" + str(row["attempted"]) + " failed",
+                              ha="center", fontsize=9)
+                axis.set_xticks(positions, [row["architecture"] for row in rows])
+                axis.set_ylim(0, max(row["attempted"] for row in rows) + 4)
+                axis.set_title(task)
+                axis.set_ylabel("Attempted seeds")
+            for axis in list(axes.flat)[len(tasks):]:
+                axis.set_visible(False)
+            handles, labels = axes.flat[0].get_legend_handles_labels()
+            figure.legend(handles, labels, loc="outside lower center", ncol=2, fontsize=9)
+            figure.suptitle(f"PUNN numerical stability | plain SGD | {config['epochs']} epochs", fontsize=15)
+            with artifact.new_file("numerical_stability.png", mode="wb") as handle:
+                figure.savefig(handle, format="png", dpi=160)
+            plt.close(figure)
         run.log_artifact(artifact)
         artifact.wait()
         run.summary["analysis_artifact"] = artifact.qualified_name

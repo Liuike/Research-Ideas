@@ -29,6 +29,26 @@ def _args(task: str = "xor", architecture: str = "oversized", seed: int = 4,
     ])
 
 
+def _adaptive_args(method: str, task: str = "xor", architecture: str = "oversized",
+                   seed: int = 4, regularization_lambda: float = 0.0, epochs: int = 2):
+    recipe = stability.ADAPTIVE_RECIPES[method]
+    values = [
+        "--protocol", stability.ADAPTIVE_PROTOCOL,
+        "--task", task,
+        "--architecture", architecture,
+        "--method", method,
+        "--seed", str(seed),
+        "--data-seed", str(seed + 100000),
+        "--epochs", str(epochs),
+        "--regularization-lambda", str(regularization_lambda),
+        "--run-group", "test-adaptive-architecture-stability",
+        "--stage", "test",
+    ]
+    for key, value in recipe.items():
+        values.extend(["--" + key.replace("_", "-"), str(value).lower() if isinstance(value, bool) else str(value)])
+    return stability.parse_args(values)
+
+
 def test_architecture_stability_plan_has_480_unique_frozen_conditions():
     config = yaml.safe_load((ROOT / "configs/product_unit/architecture_stability.yaml").read_text())
     commands = stability.expand_config(config)
@@ -46,6 +66,30 @@ def test_architecture_stability_plan_has_480_unique_frozen_conditions():
                for args in parsed if args.architecture != "regularized")
 
 
+def test_adaptive_architecture_stability_plan_has_960_paired_conditions():
+    config = yaml.safe_load((ROOT / "configs/product_unit/adaptive_architecture_stability.yaml").read_text())
+    commands = stability.expand_config(config)
+    assert len(commands) == 16 * 30 * 2 == 960
+    parsed = [stability.parse_args(command[3:]) for command in commands]
+    assert len({args.condition_id for args in parsed}) == 960
+    assert {args.method for args in parsed} == set(stability.ADAPTIVE_METHODS)
+    for method in stability.ADAPTIVE_METHODS:
+        method_runs = [args for args in parsed if args.method == method]
+        assert len(method_runs) == 480
+        assert all(args.data_seed == args.seed + 100000 for args in method_runs)
+        assert all(
+            {key: getattr(args, key) for key in stability.ADAPTIVE_RECIPE_FIELDS}
+            == stability.ADAPTIVE_RECIPES[method]
+            for args in method_runs
+        )
+        regularized = [args for args in method_runs if args.architecture == "regularized"]
+        assert len(regularized) == 120
+        assert all(args.task in stability.CLASSIFICATION_TASKS and args.regularization_lambda == 0.0001
+                   for args in regularized)
+        assert all(args.regularization_lambda == 0.0
+                   for args in method_runs if args.architecture != "regularized")
+
+
 def test_config_rejects_duplicate_conditions_and_regularized_regression():
     config = yaml.safe_load((ROOT / "configs/product_unit/architecture_stability.yaml").read_text())
     duplicate = {**config, "conditions": [*config["conditions"], config["conditions"][0]]}
@@ -54,6 +98,148 @@ def test_config_rejects_duplicate_conditions_and_regularized_regression():
     invalid = {**config, "conditions": [{"task": "f1", "architecture": "regularized"}]}
     with pytest.raises(ValueError, match="not registered"):
         stability.expand_config(invalid)
+
+
+def test_adaptive_config_rejects_recipe_drift_and_regularized_regression():
+    config = yaml.safe_load((ROOT / "configs/product_unit/adaptive_architecture_stability.yaml").read_text())
+    altered_recipe = {**config, "optimizer_settings": {
+        **config["optimizer_settings"],
+        "adamw": {**config["optimizer_settings"]["adamw"], "learning_rate": 0.002},
+    }}
+    with pytest.raises(ValueError, match="frozen gradient-defaults"):
+        stability.expand_config(altered_recipe)
+    invalid = {**config, "conditions": [{"task": "f1", "architecture": "regularized"}]}
+    with pytest.raises(ValueError, match="not registered"):
+        stability.expand_config(invalid)
+
+
+def test_adaptive_optimizer_builder_preserves_adamw_and_muon_parameter_assignment():
+    from optimizer_resurrection.optim.moonlight_muon import MoonlightMuon
+    from optimizer_resurrection.punn_gradients import build_optimizer
+
+    model = stability.ProductUnitNetwork(2, 2, 1)
+    adamw_args = _adaptive_args("adamw")
+    adamw = build_optimizer(model, adamw_args)
+    assert isinstance(adamw.primary, torch.optim.AdamW)
+    assert adamw.auxiliary is None
+    assert {id(parameter) for parameter in adamw.primary.param_groups[0]["params"]} == {
+        id(parameter) for parameter in model.parameters()
+    }
+    assert adamw.primary.param_groups[0]["lr"] == 0.001
+    assert adamw.primary.param_groups[0]["weight_decay"] == 0.01
+    assert adamw.primary.param_groups[0]["betas"] == (0.9, 0.999)
+
+    muon_args = _adaptive_args("muon_moonlight")
+    muon = build_optimizer(model, muon_args)
+    assert isinstance(muon.primary, MoonlightMuon)
+    assert isinstance(muon.auxiliary, torch.optim.AdamW)
+    assert muon.primary.param_groups[0]["lr"] == 0.02
+    assert muon.primary.param_groups[0]["momentum"] == 0.95
+    assert muon.primary.param_groups[0]["weight_decay"] == 0.0
+    assert muon.auxiliary.param_groups[0]["lr"] == 0.001
+    assert muon.auxiliary.param_groups[0]["betas"] == (0.9, 0.95)
+    assert {id(parameter) for parameter in muon.primary.param_groups[0]["params"]} == {id(model.exponents)}
+    assert {id(parameter) for parameter in muon.auxiliary.param_groups[0]["params"]} == {
+        id(parameter) for parameter in model.output.parameters()
+    }
+
+
+@pytest.mark.parametrize("method", ["adamw", "muon_moonlight"])
+def test_adaptive_trial_uses_recipe_and_completes_with_same_data_initialization_and_order(method):
+    dataset_pair = make_architecture_dataset("xor", 100004)
+    args = _adaptive_args(method)
+    result = stability.run_trial(args, dataset_pair=dataset_pair)
+    assert result["method"] == method
+    assert result["protocol"] == stability.ADAPTIVE_PROTOCOL
+    assert result["terminal_outcome"] == "completed"
+    assert result["epochs_completed"] == 2
+    assert result["dataset_digest"] == stability._dataset_digest(dataset_pair[0])
+    assert result["initialization_digest"]
+    assert result["order_seed"] == 1_000_007
+    assert result["learning_rate"] == stability.ADAPTIVE_RECIPES[method]["learning_rate"]
+    assert result["weight_decay"] == stability.ADAPTIVE_RECIPES[method]["weight_decay"]
+    assert result["secondary"] == stability.ADAPTIVE_RECIPES[method]["secondary"]
+    assert result["optimizer_assignment"]
+
+
+def test_adaptive_methods_and_architecture_variants_share_paired_inputs_and_initialization():
+    dataset_pair = make_architecture_dataset("xor", 100004)
+    results = {}
+    for method in stability.ADAPTIVE_METHODS:
+        for architecture in ("oversized", "regularized"):
+            reg = 0.0001 if architecture == "regularized" else 0.0
+            key = (method, architecture)
+            results[key] = stability.run_trial(
+                _adaptive_args(method, architecture=architecture, regularization_lambda=reg),
+                dataset_pair=dataset_pair,
+            )
+    paired = [result for result in results.values()]
+    assert len({result["dataset_digest"] for result in paired}) == 1
+    assert len({result["initialization_digest"] for result in paired}) == 1
+    assert len({result["order_seed"] for result in paired}) == 1
+
+
+@pytest.mark.parametrize(
+    ("method", "optimizer_kind", "expected_state_prefix"),
+    [
+        ("adamw", "primary_adamw", "optimizer_state.primary."),
+        ("muon_moonlight", "primary_muon", "optimizer_state.primary."),
+        ("muon_moonlight", "auxiliary_adamw", "optimizer_state.auxiliary."),
+    ],
+)
+def test_adaptive_trial_detects_nonfinite_state_in_each_optimizer(
+    monkeypatch, method, optimizer_kind, expected_state_prefix
+):
+    from optimizer_resurrection.optim.moonlight_muon import MoonlightMuon
+
+    dataset_pair = make_architecture_dataset("xor", 100004)
+    observed_gradients = []
+    original_network = stability.ProductUnitNetwork
+    created_models = []
+
+    class CapturedNetwork(original_network):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            created_models.append(self)
+
+    monkeypatch.setattr(stability, "ProductUnitNetwork", CapturedNetwork)
+    if optimizer_kind.endswith("adamw"):
+        original_step = torch.optim.AdamW.step
+
+        def step_then_corrupt_state(optimizer, *args, **kwargs):
+            with torch.no_grad():
+                for group in optimizer.param_groups:
+                    for parameter in group["params"]:
+                        if parameter.grad is not None:
+                            parameter.grad.fill_(2e21)
+                            observed_gradients.append(parameter.grad.clone())
+            outcome = original_step(optimizer, *args, **kwargs)
+            return outcome
+
+        monkeypatch.setattr(torch.optim.AdamW, "step", step_then_corrupt_state)
+    else:
+        original_step = MoonlightMuon.step
+
+        def step_then_corrupt_state(optimizer, *args, **kwargs):
+            outcome = original_step(optimizer, *args, **kwargs)
+            state = next(iter(optimizer.state.values()))
+            state["momentum_buffer"].fill_(float("inf"))
+            return outcome
+
+        monkeypatch.setattr(MoonlightMuon, "step", step_then_corrupt_state)
+
+    result = stability.run_trial(_adaptive_args(method), dataset_pair=dataset_pair)
+    assert result["terminal_outcome"] == "numerical_failure"
+    assert result["failure_reason"] == "nonfinite_optimizer_state"
+    assert result["failure_phase"] == "optimizer_update"
+    assert result["failed_epoch"] == 1
+    assert result["failure_pattern"]["tensor_names"][0].startswith(expected_state_prefix)
+    assert created_models and all(bool(torch.isfinite(parameter).all())
+                                  for parameter in created_models[-1].parameters())
+    if optimizer_kind.endswith("adamw"):
+        assert observed_gradients and all(bool(torch.isfinite(gradient).all()) for gradient in observed_gradients)
+        assert all(float(gradient.abs().max()) == pytest.approx(2e21) for gradient in observed_gradients)
+        assert "exp_avg_sq" in result["failure_pattern"]["tensor_names"][0]
 
 
 def test_selected_penalty_is_lambda_times_all_parameter_squares_including_bias():

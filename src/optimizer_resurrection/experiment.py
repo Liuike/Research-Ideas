@@ -53,7 +53,7 @@ def expand_config(
 ) -> list[list[str]]:
     """Expand committed study configs into auditable one-run commands."""
     commands: list[list[str]] = []
-    if config.get("protocol") == "punn-architecture-stability-v1":
+    if config.get("protocol") in {"punn-architecture-stability-v1", "punn-adaptive-architecture-stability-v1"}:
         from .punn_architecture_stability import expand_config as expand_stability
         return expand_stability(config)
     if config.get("protocol") in {"engelbrecht-gouldie-2024-recorded-v1", "punn-adamw-recorded-v1", "punn-muon-recorded-v1"}:

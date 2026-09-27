@@ -1,0 +1,59 @@
+protocol: punn-adaptive-architecture-stability-v1
+conditions:
+- task: f1
+  architecture: small
+- task: f1
+  architecture: oversized
+- task: f4
+  architecture: small
+- task: f4
+  architecture: oversized
+- task: xor
+  architecture: small
+- task: xor
+  architecture: oversized
+- task: xor
+  architecture: regularized
+- task: iris
+  architecture: small
+- task: iris
+  architecture: oversized
+- task: iris
+  architecture: regularized
+- task: wine
+  architecture: small
+- task: wine
+  architecture: oversized
+- task: wine
+  architecture: regularized
+- task: diabetes
+  architecture: small
+- task: diabetes
+  architecture: oversized
+- task: diabetes
+  architecture: regularized
+seeds:
+- 0
+data_seed_offset: 100000
+epochs: 2
+regularization_lambda: 0.0001
+log_every: 1
+device: cpu
+stage: engineering-smoke
+run_group: punn-adaptive-architecture-cpu-smoke-v1
+methods:
+- adamw
+- muon_moonlight
+optimizer_settings:
+  adamw:
+    learning_rate: 0.001
+    momentum: 0.9
+    weight_decay: 0.01
+    aux_learning_rate: 0.001
+    secondary: true
+  muon_moonlight:
+    learning_rate: 0.02
+    momentum: 0.95
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false

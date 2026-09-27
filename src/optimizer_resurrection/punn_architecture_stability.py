@@ -1,10 +1,11 @@
-"""Plain-SGD numerical-stability runs for optimal and oversized PUNN widths.
+"""PUNN numerical-stability runs for registered architecture and optimizer recipes.
 
 The 2024 study's oversized networks use the corresponding summation-unit
 network (SUNN) widths. Its selected L2 setting (lambda=1e-4) was used only on classification
-problems. This protocol keeps the paper's scalar FP32 update order, uses plain
-SGD (learning rate 0.1, momentum 0), and records finite-error outcomes
-separately from numerical failures.
+problems. The original protocol keeps the paper's scalar FP32 update order and
+uses plain SGD (learning rate 0.1, momentum 0). The adaptive extension uses the
+frozen AdamW and Moonlight Muon recipes from ``gradient_defaults.yaml``. Both
+protocols record finite-error outcomes separately from numerical failures.
 """
 
 from __future__ import annotations
@@ -38,7 +39,9 @@ from .tracking import load_wandb_credentials, require_online_wandb
 
 
 PROTOCOL = "punn-architecture-stability-v1"
+ADAPTIVE_PROTOCOL = "punn-adaptive-architecture-stability-v1"
 METHOD = "sgd"
+ADAPTIVE_METHODS = ("adamw", "muon_moonlight")
 ARCHITECTURES = ("small", "oversized", "regularized")
 CLASSIFICATION_TASKS = {"xor", "iris", "wine", "diabetes"}
 RUNTIME_FIELDS = {"condition_id", "dry_run", "run_group", "run_name", "stage"}
@@ -55,6 +58,39 @@ CONFIG_FIELDS = {
     "device",
     "stage",
     "run_group",
+}
+ADAPTIVE_CONFIG_FIELDS = {
+    "protocol",
+    "conditions",
+    "methods",
+    "seeds",
+    "data_seed_offset",
+    "epochs",
+    "regularization_lambda",
+    "log_every",
+    "device",
+    "stage",
+    "run_group",
+    "optimizer_settings",
+}
+ADAPTIVE_RECIPE_FIELDS = {
+    "learning_rate", "momentum", "weight_decay", "aux_learning_rate", "secondary"
+}
+ADAPTIVE_RECIPES = {
+    "adamw": {
+        "learning_rate": 0.001,
+        "momentum": 0.9,
+        "weight_decay": 0.01,
+        "aux_learning_rate": 0.001,
+        "secondary": True,
+    },
+    "muon_moonlight": {
+        "learning_rate": 0.02,
+        "momentum": 0.95,
+        "weight_decay": 0.0,
+        "aux_learning_rate": 0.001,
+        "secondary": False,
+    },
 }
 
 
@@ -74,6 +110,25 @@ def _dimensions(task: str, architecture: str) -> tuple[int, int, int]:
 
 def _scientific_values(args: argparse.Namespace) -> dict[str, Any]:
     """Fields that define one immutable condition, including its resolved shape."""
+    if args.protocol == ADAPTIVE_PROTOCOL:
+        return {
+            "protocol": args.protocol,
+            "task": args.task,
+            "architecture": args.architecture,
+            "method": args.method,
+            "seed": args.seed,
+            "data_seed": args.data_seed,
+            "epochs": args.epochs,
+            "learning_rate": args.learning_rate,
+            "momentum": args.momentum,
+            "regularization_lambda": args.regularization_lambda,
+            "weight_decay": args.weight_decay,
+            "aux_learning_rate": args.aux_learning_rate,
+            "secondary": args.secondary,
+            "input_dim": args.input_dim,
+            "hidden_units": args.hidden_units,
+            "output_dim": args.output_dim,
+        }
     return {
         "protocol": args.protocol,
         "task": args.task,
@@ -98,16 +153,19 @@ def _condition_id(values: dict[str, Any]) -> str:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--protocol", choices=[PROTOCOL], default=PROTOCOL)
+    parser.add_argument("--protocol", choices=[PROTOCOL, ADAPTIVE_PROTOCOL], default=PROTOCOL)
     parser.add_argument("--task", choices=sorted(TASK_SPECS), required=True)
     parser.add_argument("--architecture", choices=ARCHITECTURES, required=True)
-    parser.add_argument("--method", choices=[METHOD], default=METHOD)
+    parser.add_argument("--method", choices=[METHOD, *ADAPTIVE_METHODS], default=METHOD)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--data-seed", type=int, required=True)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--momentum", type=float, default=0.0)
     parser.add_argument("--regularization-lambda", type=float, default=0.0)
+    parser.add_argument("--weight-decay", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--aux-learning-rate", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--secondary", choices=["true", "false"], default=argparse.SUPPRESS)
     parser.add_argument("--log-every", type=int, default=50)
     parser.add_argument("--device", choices=["cpu"], default="cpu")
     parser.add_argument("--stage", default="exploratory")
@@ -121,10 +179,34 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("epochs and log-every must be positive")
     if args.seed < 0 or args.data_seed < 0:
         parser.error("seeds must be nonnegative")
-    if not math.isfinite(args.learning_rate) or args.learning_rate != 0.1:
-        parser.error("this frozen plain-SGD stability protocol requires learning-rate=0.1")
-    if not math.isfinite(args.momentum) or args.momentum != 0.0:
-        parser.error("this frozen plain-SGD stability protocol requires momentum=0")
+    if args.protocol == PROTOCOL:
+        if args.method != METHOD:
+            parser.error("the frozen plain-SGD stability protocol requires method=sgd")
+        if not math.isfinite(args.learning_rate) or args.learning_rate != 0.1:
+            parser.error("this frozen plain-SGD stability protocol requires learning-rate=0.1")
+        if not math.isfinite(args.momentum) or args.momentum != 0.0:
+            parser.error("this frozen plain-SGD stability protocol requires momentum=0")
+        if any(hasattr(args, key) for key in ("weight_decay", "aux_learning_rate", "secondary")):
+            parser.error("adaptive optimizer settings require the adaptive stability protocol")
+    else:
+        if args.method not in ADAPTIVE_METHODS:
+            parser.error("the adaptive stability protocol requires AdamW or Muon Moonlight")
+        required = ("weight_decay", "aux_learning_rate", "secondary")
+        if any(not hasattr(args, key) for key in required):
+            parser.error("adaptive stability runs require explicit weight-decay, aux-learning-rate, and secondary")
+        args.secondary = args.secondary == "true"
+        expected_recipe = ADAPTIVE_RECIPES[args.method]
+        actual_recipe = {key: getattr(args, key) for key in ADAPTIVE_RECIPE_FIELDS}
+        if actual_recipe != expected_recipe:
+            parser.error(f"adaptive {args.method} settings must match the frozen gradient-defaults recipe")
+        if not math.isfinite(args.learning_rate) or args.learning_rate <= 0:
+            parser.error("learning-rate must be finite and positive")
+        if not math.isfinite(args.momentum) or not 0 <= args.momentum < 1:
+            parser.error("momentum must be finite and in [0,1)")
+        if not math.isfinite(args.weight_decay) or args.weight_decay < 0:
+            parser.error("weight-decay must be finite and nonnegative")
+        if not math.isfinite(args.aux_learning_rate) or args.aux_learning_rate <= 0:
+            parser.error("aux-learning-rate must be finite and positive")
     if not math.isfinite(args.regularization_lambda) or args.regularization_lambda < 0:
         parser.error("regularization-lambda must be finite and nonnegative")
     if args.architecture == "regularized":
@@ -141,11 +223,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("condition-id does not match resolved scientific configuration")
     args.condition_id = actual
     if args.run_name is None:
-        args.run_name = f"punn-stability-{args.task}-{args.architecture}-seed{args.seed}"
+        method_suffix = f"-{args.method}" if args.protocol == ADAPTIVE_PROTOCOL else ""
+        args.run_name = f"punn-stability-{args.task}-{args.architecture}{method_suffix}-seed{args.seed}"
     return args
 
 
 def expand_config(config: dict[str, Any]) -> list[list[str]]:
+    if config.get("protocol") == ADAPTIVE_PROTOCOL:
+        return _expand_adaptive_config(config)
     if set(config) != CONFIG_FIELDS or config.get("protocol") != PROTOCOL:
         raise ValueError(
             f"invalid architecture-stability config fields: missing={CONFIG_FIELDS-set(config)} "
@@ -208,6 +293,92 @@ def expand_config(config: dict[str, Any]) -> list[list[str]]:
         command = ["python", "-m", "optimizer_resurrection.punn_architecture_stability"]
         for key, value in values.items():
             command.extend(["--" + key.replace("_", "-"), str(value)])
+        parse_args(command[3:])
+        commands.append(command)
+    return commands
+
+
+def _expand_adaptive_config(config: dict[str, Any]) -> list[list[str]]:
+    """Expand the frozen AdamW/Muon architecture stability matrix."""
+    if set(config) != ADAPTIVE_CONFIG_FIELDS:
+        raise ValueError(
+            f"invalid adaptive architecture-stability config fields: "
+            f"missing={ADAPTIVE_CONFIG_FIELDS-set(config)} extra={set(config)-ADAPTIVE_CONFIG_FIELDS}"
+        )
+    conditions = config["conditions"]
+    methods = config["methods"]
+    seeds = config["seeds"]
+    if not isinstance(conditions, list) or not conditions:
+        raise ValueError("conditions must be a nonempty list")
+    if not isinstance(methods, list) or not methods or len(set(methods)) != len(methods):
+        raise ValueError("methods must be a nonempty unique list")
+    if any(method not in ADAPTIVE_METHODS for method in methods):
+        raise ValueError(f"adaptive methods must be selected from {ADAPTIVE_METHODS}")
+    if not isinstance(seeds, list) or not seeds or any(type(seed) is not int or seed < 0 for seed in seeds):
+        raise ValueError("seeds must be a nonempty list of nonnegative integers")
+    if len(set(seeds)) != len(seeds):
+        raise ValueError("seeds must be unique")
+    if type(config["data_seed_offset"]) is not int or config["data_seed_offset"] < 0:
+        raise ValueError("data-seed-offset must be a nonnegative integer")
+    if config["epochs"] < 1 or config["log_every"] < 1:
+        raise ValueError("epochs and log-every must be positive")
+    if config["device"] != "cpu":
+        raise ValueError("adaptive architecture-stability runs use CPU FP32 scalar updates")
+    if set(config["optimizer_settings"]) != set(methods):
+        raise ValueError("optimizer_settings must cover exactly the requested methods")
+    for method in methods:
+        recipe = config["optimizer_settings"][method]
+        if not isinstance(recipe, dict) or set(recipe) != ADAPTIVE_RECIPE_FIELDS:
+            raise ValueError(f"invalid optimizer setting fields for {method}")
+        if recipe != ADAPTIVE_RECIPES[method]:
+            raise ValueError(f"optimizer settings for {method} differ from the frozen gradient-defaults recipe")
+
+    reg_lambda = config["regularization_lambda"]
+    if not math.isfinite(reg_lambda) or reg_lambda != 0.0001:
+        raise ValueError("regularization-lambda must be the selected 0.0001")
+    keys_seen: set[tuple[str, str]] = set()
+    for condition in conditions:
+        if not isinstance(condition, dict) or set(condition) != {"task", "architecture"}:
+            raise ValueError("each condition must contain exactly task and architecture")
+        task, architecture = condition["task"], condition["architecture"]
+        if task not in TASK_SPECS or architecture not in ARCHITECTURES:
+            raise ValueError(f"unsupported task/architecture condition: {condition}")
+        if architecture == "regularized" and task not in CLASSIFICATION_TASKS:
+            raise ValueError(f"regularization is not registered for regression task {task}")
+        key = (task, architecture)
+        if key in keys_seen:
+            raise ValueError(f"duplicate task/architecture condition: {key}")
+        keys_seen.add(key)
+
+    commands: list[list[str]] = []
+    for condition, method, seed in itertools.product(conditions, methods, seeds):
+        task = condition["task"]
+        architecture = condition["architecture"]
+        recipe = config["optimizer_settings"][method]
+        values = {
+            "protocol": ADAPTIVE_PROTOCOL,
+            "task": task,
+            "architecture": architecture,
+            "method": method,
+            "seed": seed,
+            "data_seed": seed + config["data_seed_offset"],
+            "epochs": config["epochs"],
+            "learning_rate": recipe["learning_rate"],
+            "momentum": recipe["momentum"],
+            "regularization_lambda": reg_lambda if architecture == "regularized" else 0.0,
+            "weight_decay": recipe["weight_decay"],
+            "aux_learning_rate": recipe["aux_learning_rate"],
+            "secondary": recipe["secondary"],
+            "log_every": config["log_every"],
+            "device": config["device"],
+            "stage": config["stage"],
+            "run_group": config["run_group"],
+            "run_name": f"punn-stability-{task}-{architecture}-{method}-seed{seed}",
+        }
+        command = ["python", "-m", "optimizer_resurrection.punn_architecture_stability"]
+        for key, value in values.items():
+            rendered = str(value).lower() if isinstance(value, bool) else str(value)
+            command.extend(["--" + key.replace("_", "-"), rendered])
         parse_args(command[3:])
         commands.append(command)
     return commands
@@ -285,13 +456,23 @@ def _validate_dataset(dataset: Any, args: argparse.Namespace) -> None:
             raise ValueError(f"dataset {part} shapes do not match the registered task dimensions")
 
 
+def _active_optimizers(optimizer: Any) -> list[tuple[str, torch.optim.Optimizer]]:
+    """Expose every optimizer in a method bundle for state finiteness checks."""
+    if hasattr(optimizer, "primary") and hasattr(optimizer, "auxiliary"):
+        active = [("primary", optimizer.primary)]
+        if optimizer.auxiliary is not None:
+            active.append(("auxiliary", optimizer.auxiliary))
+        return active
+    return [("primary", optimizer)]
+
+
 def run_trial(
     args: argparse.Namespace,
     on_epoch: Callable[[dict[str, Any]], None] | None = None,
     *,
     dataset_pair: tuple[Any, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run one CPU scalar-update SGD condition and stop at its first nonfinite."""
+    """Run one CPU scalar-update condition and stop at its first nonfinite."""
     started = time.perf_counter()
     seed_everything(args.seed)
     if dataset_pair is None:
@@ -315,8 +496,16 @@ def run_trial(
     ).hexdigest()
     order_seed = args.seed + 1_000_003
     generator = torch.Generator(device="cpu").manual_seed(order_seed)
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate,
-                                momentum=0.0, weight_decay=0.0)
+    if args.protocol == ADAPTIVE_PROTOCOL:
+        # Reuse the frozen comparison builder so AdamW/Muon assignment and
+        # optimizer defaults match the existing gradient-defaults experiments.
+        from .punn_gradients import build_optimizer as build_product_optimizer
+
+        optimizer = build_product_optimizer(model, args)
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate,
+                                    momentum=0.0, weight_decay=0.0)
+    active_optimizers = _active_optimizers(optimizer)
 
     epochs_completed = 0
     examples_processed = 0
@@ -459,9 +648,10 @@ def run_trial(
                 float(parameter.detach().abs().max()) for parameter in model.parameters()
             ))
             bad_optimizer_state = _tensor_pattern([
-                (f"optimizer_state.{name}.{key}", value)
+                (f"optimizer_state.{optimizer_name}.{name}.{key}", value)
+                for optimizer_name, active_optimizer in active_optimizers
                 for name, parameter in model.named_parameters()
-                for key, value in optimizer.state.get(parameter, {}).items()
+                for key, value in active_optimizer.state.get(parameter, {}).items()
                 if isinstance(value, torch.Tensor)
             ])
             if bad_optimizer_state is not None:
@@ -520,7 +710,7 @@ def run_trial(
         "protocol": args.protocol,
         "task": args.task,
         "architecture": args.architecture,
-        "method": METHOD,
+        "method": args.method,
         "seed": args.seed,
         "data_seed": args.data_seed,
         "epochs_completed": epochs_completed,
@@ -546,6 +736,34 @@ def run_trial(
         "order_seed": order_seed,
         "terminal_outcome": "numerical_failure" if numerical_failure else "completed",
     }
+    if args.protocol == ADAPTIVE_PROTOCOL:
+        if args.method == "adamw":
+            optimizer_name = "torch.optim.AdamW"
+            optimizer_assignment = "AdamW over all model parameters"
+            optimizer_betas = [0.9, 0.999]
+        else:
+            optimizer_name = "MoonlightMuon plus AdamW auxiliary"
+            optimizer_assignment = "Moonlight Muon on exponents; AdamW on output weight and bias"
+            optimizer_betas = {"auxiliary_adamw": [0.9, 0.95]}
+        result.update({
+            "epochs": args.epochs,
+            "input_dim": args.input_dim,
+            "hidden_units": args.hidden_units,
+            "output_dim": args.output_dim,
+            "regularization_lambda": args.regularization_lambda,
+            "learning_rate": args.learning_rate,
+            "momentum": args.momentum,
+            "weight_decay": args.weight_decay,
+            "aux_learning_rate": args.aux_learning_rate,
+            "secondary": args.secondary,
+            "optimizer_name": optimizer_name,
+            "optimizer_assignment": optimizer_assignment,
+            "optimizer_betas": optimizer_betas,
+            "optimizer_epsilon": 1e-8,
+        })
+        if args.method == "muon_moonlight":
+            result["muon_nesterov"] = True
+            result["muon_ns_steps"] = 5
     if failure:
         result["failed_epoch"] = failure["failed_epoch"]
         result["failure_examples_processed"] = failure["examples_processed"]
@@ -610,13 +828,49 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
         "optimizer_resurrection.punn_architecture_stability",
         *(sys.argv[1:] if argv is None else argv),
     ]
+    if args.protocol == ADAPTIVE_PROTOCOL:
+        if args.method == "adamw":
+            optimizer_name = "torch.optim.AdamW"
+            optimizer_assignment = "AdamW over all model parameters"
+            optimizer_betas: Any = [0.9, 0.999]
+            optimizer_note = "AdamW recipe from configs/product_unit/gradient_defaults.yaml"
+        else:
+            from .optim.moonlight_muon import SOURCE as MOONLIGHT_SOURCE
+
+            optimizer_name = "MoonlightMuon + torch.optim.AdamW"
+            optimizer_assignment = "Moonlight Muon on exponents; AdamW on output weight and bias"
+            optimizer_betas = {"auxiliary_adamw": [0.9, 0.95]}
+            optimizer_note = "Muon recipe from configs/product_unit/gradient_defaults.yaml"
+        optimizer_provenance = {
+            "optimizer": optimizer_name,
+            "optimizer_assignment": optimizer_assignment,
+            "optimizer_recipe_source": "configs/product_unit/gradient_defaults.yaml",
+            "optimizer_recipe": {
+                "learning_rate": args.learning_rate,
+                "momentum": args.momentum,
+                "weight_decay": args.weight_decay,
+                "aux_learning_rate": args.aux_learning_rate,
+                "secondary": args.secondary,
+            },
+            "optimizer_betas": optimizer_betas,
+            "optimizer_epsilon": 1e-8,
+            "optimizer_note": optimizer_note,
+            "secondary": args.secondary,
+        }
+        if args.method == "muon_moonlight":
+            optimizer_provenance["moonlight_source"] = MOONLIGHT_SOURCE
+            optimizer_provenance["muon_nesterov"] = True
+            optimizer_provenance["muon_ns_steps"] = 5
+    else:
+        optimizer_provenance = {
+            "optimizer": "torch.optim.SGD over all parameters; lr=0.1; momentum=0; weight_decay=0"
+        }
     provenance = {
         "git": git,
         "source_tree": _source_tree_digest(root),
         "invocation": _sanitized_invocation(invocation, credentials),
         "environment": _environment_metadata(torch.device("cpu")),
         "determinism": _determinism_metadata(args.seed, args.data_seed),
-        "optimizer": "torch.optim.SGD over all parameters; lr=0.1; momentum=0; weight_decay=0",
         "precision": "CPU FP32; scalar batch-one updates; no AMP",
         "batch_size": 1,
         "gradient_clipping": False,
@@ -630,6 +884,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
             "hidden_units": args.hidden_units,
             "output_dim": args.output_dim,
         },
+        **optimizer_provenance,
     }
     import wandb
 
@@ -665,6 +920,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
         run.summary["dataset_digest"] = digest
         result = run_trial(args, lambda values: _log_training_epoch(run, values),
                            dataset_pair=(dataset, data_metadata))
+        if args.protocol == ADAPTIVE_PROTOCOL:
+            result["dataset_artifact"] = dataset_artifact
         _record_terminal_result(run, result)
     except BaseException:
         run.summary["terminal_outcome"] = "failed"
