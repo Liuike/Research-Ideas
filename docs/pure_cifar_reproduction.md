@@ -133,3 +133,12 @@ seeds. The paired momentum-SGD seed-0 reference is 94.22% (run `66303l7q`).
 This is a single-seed optimizer ablation; it does not estimate across-seed
 variation or reproduce a paper-reported plain-SGD result. CPU, local GPU and
 disposable Oscar smoke configs precede scientific submission.
+
+Submitted Oscar array `6738291` with `--array=0-0%1`, one L40S, four CPUs,
+32 GB RAM and a twelve-hour limit, from clean revision
+`46805f57fcb5ade32d7f256c4f8b72407f60c322` in
+`/oscar/scratch/ezhan153/pure-plain-sgd-46805f5`. All 229 tests passed on
+Oscar. The disposable Oscar smoke `6738040` completed finite; its online
+record verified source/data/model/worker/Slurm/L40S identity, and its group
+was deleted before scientific submission. CPU smoke recorded a final-evaluation
+numerical failure; local GPU smoke completed finite. Full-run outcome pending.
