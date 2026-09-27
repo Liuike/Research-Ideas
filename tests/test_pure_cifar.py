@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from optimizer_resurrection import pure_cifar as pc
-from optimizer_resurrection.pure_analysis import summarize_records
+from optimizer_resurrection.pure_analysis import summarize_records, validate_landscape_history
 from optimizer_resurrection.tracking import RunRecord
 
 
@@ -149,6 +149,77 @@ def test_analysis_plain_sgd_single_cell():
     report = summarize_records(plain, [record])
     assert report["expected_cells"] == report["completed"] == 1
     assert report["sd_test_accuracy_percent"] is None
+
+
+def test_landscape_protocol_preserves_legacy_condition_and_frozen_recipe():
+    plain = config()
+    plain.update(protocol=pc.PLAIN_PROTOCOL, seeds=[0], momentum=0.0,
+                 stage="exploratory", run_group=pc.PLAIN_PROTOCOL)
+    baseline = pc.parse_args(pc.expand_config(plain)[0][3:])
+    assert not hasattr(baseline, "landscape")
+    assert baseline.condition_id == "e0de80c7aa1b4e2420681baa9d18aebb6445dff80a175b8942cd152ebf83be54"
+    landscape = {**plain, "protocol": pc.LANDSCAPE_PROTOCOL, "landscape": True,
+                 "run_group": pc.LANDSCAPE_PROTOCOL}
+    args = pc.parse_args(pc.expand_config(landscape)[0][3:])
+    assert args.landscape and args.momentum == 0 and args.seed == 0
+    assert args.condition_id != baseline.condition_id
+    for key in ("epochs", "batch_size", "learning_rate", "momentum", "weight_decay",
+                "milestones", "gamma", "seed", "data_seed"):
+        assert getattr(args, key) == getattr(baseline, key)
+    with pytest.raises(SystemExit):
+        pc.expand_config({**landscape, "landscape": False})
+    with pytest.raises(SystemExit):
+        pc.expand_config({**landscape, "momentum": .9})
+
+
+def test_landscape_training_replay_and_probe_schedule():
+    baseline = smoke_args()
+    baseline.momentum = 0.0
+    baseline.protocol = pc.PLAIN_PROTOCOL
+    models = []
+    def factory():
+        model = torch.nn.Linear(2, 2)
+        models.append(model)
+        return model
+    reference = pc.run_trial(baseline, loaders=loaders(), model_factory=factory)
+    instrumented = copy.deepcopy(baseline)
+    instrumented.protocol = pc.LANDSCAPE_PROTOCOL
+    instrumented.landscape = True
+    recorded = []
+    fixed = loaders()[1].dataset.tensors
+    measured = pc.run_trial(instrumented, recorded.append, loaders(), factory, landscape_probe=fixed)
+    for key in ("initialization_digest", "train_loss", "train_accuracy", "test_loss", "test_accuracy"):
+        assert measured[key] == reference[key]
+    for key, value in models[0].state_dict().items():
+        assert torch.equal(value, models[1].state_dict()[key])
+    assert measured["landscape_probe_epochs"] == [0, 1, 3]
+    assert measured["landscape_gradient_batches"] == 9
+    assert [row["epoch"] for row in recorded] == [0, 1, 2, 3]
+    assert all(row["landscape/train/minibatch_count"] == 3 for row in recorded[1:])
+
+
+def test_final_test_diagnostics_preserve_evaluation_and_detect_large_wrong_loss():
+    model = torch.nn.Linear(2, 2)
+    with torch.no_grad():
+        model.weight.copy_(torch.tensor([[1000., 0.], [-1000., 0.]]))
+        model.bias.zero_()
+    loader = DataLoader(TensorDataset(torch.tensor([[1., 0.], [-1., 0.]]),
+                                     torch.tensor([1, 1])), batch_size=2)
+    regular = pc.evaluate(model, loader, torch.device("cpu"))
+    measured = pc.evaluate(model, loader, torch.device("cpu"), diagnostics=True)
+    assert all(measured[key] == value for key, value in regular.items())
+    assert measured["landscape/test/loss_quantile_1"] == 2000
+    assert measured["landscape/test/incorrect_mean_confidence"] == 1
+
+
+def test_landscape_history_rejects_counts_without_measurements():
+    cfg = {**config(), "protocol": pc.LANDSCAPE_PROTOCOL, "landscape": True,
+           "seeds": [0], "momentum": 0.0, "run_group": pc.LANDSCAPE_PROTOCOL}
+    fake = [{"epoch": epoch, "landscape/train/minibatch_count": 391,
+             "landscape/train/gradient_valid_batches": 391,
+             "landscape/train/nonfinite_gradient_batches": 0} for epoch in range(1, 161)]
+    with pytest.raises(ValueError, match="gradient metric"):
+        validate_landscape_history(cfg, {"epochs_completed": 160}, fake)
 
 
 def test_analysis_rejects_running_or_impossible_failure():

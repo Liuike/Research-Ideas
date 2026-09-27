@@ -174,3 +174,76 @@ accuracy target, and plain SGD is a user-requested change to the paper recipe.
 
 Scientific source-tree SHA256:
 `04f501b6bd54b42c0bd214b2c7648df3c0014b0cccbdbf4b83596100c5184462`.
+
+
+## Instrumented plain-SGD seed-0 rerun
+
+`configs/pure_cifar/landscape_sgd_seed0.yaml` preregisters protocol/group
+`pure-cifar10-resnet18-plain-sgd-landscape-v1`. The user requested gradient
+landscape measurements after the plain-SGD result. Scientific training settings
+and seed pairing stay identical to `plain_sgd_seed0.yaml`; no tuning is added.
+All diagnostic data go to online W&B, without custom checkpoints or result files.
+
+Every minibatch contributes global and named-parameter gradient, effective
+weight-decayed gradient, and actual update statistics, aggregated per epoch.
+Product-layer activation diagnostics sample the first training minibatch each
+epoch. A separate fixed 32-example training subset uses normalization without
+augmentation, seed 314159, and recorded indices/content digest. It never samples
+the test set or consumes the training loader's shuffle/worker generators.
+
+Fixed probes are scheduled at epochs 0, 1, 40, 80, 81, 120, 121 and 160.
+They measure the evaluation-mode cross-entropy and L2 objective, approximate
+Hessian curvature, and local loss slices in two fixed random directions.
+Training-mode BatchNorm probes on the same inputs help expose differences from
+running-statistics evaluation. Probe parameters, buffers, gradients, module
+modes and RNG states are restored afterward. Invalid/nonfinite diagnostic
+measurements are recorded explicitly and do not silently change training.
+
+This is a sampled local characterization of the objective. It does not recover
+the complete high-dimensional landscape or provide a population estimate of
+curvature. Loss slices and Hessian estimates refer to a fixed training subset
+in evaluation mode; minibatch gradients refer to augmented training data with
+training-mode BatchNorm. Instrumentation adds runtime, so instrumented total
+runtime is not an optimizer speed comparison.
+
+
+Frozen diagnostic reconstruction details: eight Hessian power iterations estimate
+largest eigenvalue magnitude, with signed Rayleigh quotient and residual;
+four seeded Rademacher vectors estimate trace and its sample standard error.
+The trace and Rayleigh records also subtract the known L2 Hessian contribution.
+Two seeded random directions are normalized per output filter (whole-tensor
+normalization for vectors/scalars). Their alpha/beta coordinates are
+`[-0.10, -0.05, 0, 0.05, 0.10]`; CE, regularized objective and per-point validity
+are logged for both 1D axes and the 25-point 2D grid. These directions use
+current parameter norms; they are a relative perturbation scale, not a claim
+of exhaustive sharpness. Failed Hessian estimates do not discard loss slices.
+Numerical validity does not imply power-iteration convergence; inspect residuals.
+
+Model forward/backward, training, and Hessian-vector products remain FP32.
+Diagnostic scalar norm/cosine/Rayleigh/trace reductions use FP64 to avoid
+false overflow on large but finite FP32 values. Product-layer records include
+input-floor fraction, logged-base/exponent ranges, overflow/underflow risk,
+finite-output and zero fractions. The underflow-risk threshold is below
+`log(2**-149)`; observed zeros are logged separately. Final evaluation additionally
+records loss quantiles, maximum logit magnitude, and confidence/loss split by
+correct versus incorrect predictions during the existing one-pass test evaluation.
+
+Engineering CPU record `8gl204kb` trained finite and recorded final-evaluation
+failure. Its probe data exposed the need for stable scalar reductions and
+independent loss slices; it remains an engineering record. The final CPU smoke
+uses separate group `pure-cifar-landscape-cpu-smoke-v2` to preserve that record.
+
+
+The final CPU smoke `zrbn4kfs` recorded all gradient/activation/probe budgets;
+training remained finite while final evaluation was nonfinite, matching the
+previous reduced CPU behavior. Initial/epoch-1 invalid curvature or slice
+measurements are explicit. Local RTX 4060 Ti smoke `p89bs1li` completed finite,
+with identical initialization/data identity and training/test loss and accuracy
+to the uninstrumented smoke `qwrijmhn`. Instrumented total runtime was
+8.285135 seconds, first-epoch time 3.454299 seconds and peak allocated CUDA
+memory 1,335,751,680 bytes. Its initial Hessian probe was numerically invalid;
+epoch-1 Hessian and forward probe were valid. All required diagnostic history
+fields and slice point validity masks were verified online. Unit checks include
+closed-form scalar logistic Hessian, state/RNG restoration, large-finite-gradient
+reductions, invalid-eval/finite-batch-stat behavior, unavailable-HVP/valid-slices,
+and exact baseline-versus-instrumented training replay.

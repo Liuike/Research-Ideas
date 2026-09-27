@@ -1,0 +1,21 @@
+# Reduced local-GPU timing and memory check for landscape diagnostics.
+protocol: pure-cifar10-resnet18-plain-sgd-landscape-v1
+seeds: [999]
+data_seed_offset: 100000
+epochs: 1
+batch_size: 128
+learning_rate: 0.01
+momentum: 0.0
+weight_decay: 0.001
+milestones: []
+gamma: 0.1
+device: cuda
+num_workers: 0
+data_dir: data/cifar10
+download: false
+train_examples: 1024
+test_examples: 256
+secondary: true
+stage: engineering-smoke
+run_group: pure-cifar-landscape-local-smoke-v1
+landscape: true

@@ -50,9 +50,21 @@ def test_pure_cifar_configs_have_the_frozen_protocol_shape_and_values():
             "plain_sgd_cpu_smoke.yaml",
             "plain_sgd_local_gpu_smoke.yaml",
             "plain_sgd_oscar_smoke.yaml",
+            "landscape_sgd_seed0.yaml",
+            "landscape_sgd_cpu_smoke.yaml",
+            "landscape_sgd_local_gpu_smoke.yaml",
+            "landscape_sgd_oscar_smoke.yaml",
         )
     }
-    assert all(set(config) == CONFIG_FIELDS for config in configs.values())
+    landscape_names = {
+        "landscape_sgd_seed0.yaml",
+        "landscape_sgd_cpu_smoke.yaml",
+        "landscape_sgd_local_gpu_smoke.yaml",
+        "landscape_sgd_oscar_smoke.yaml",
+    }
+    for name, config in configs.items():
+        expected_fields = CONFIG_FIELDS | ({"landscape"} if name in landscape_names else set())
+        assert set(config) == expected_fields
 
     defaults = configs["defaults.yaml"]
     assert defaults == {
@@ -104,6 +116,23 @@ def test_pure_cifar_configs_have_the_frozen_protocol_shape_and_values():
         assert config["momentum"] == 0.0
         assert config["run_group"] == group
         assert config["stage"] == "engineering-smoke"
+
+    landscape = configs["landscape_sgd_seed0.yaml"]
+    assert landscape == {
+        **plain,
+        "protocol": "pure-cifar10-resnet18-plain-sgd-landscape-v1",
+        "landscape": True,
+        "run_group": "pure-cifar10-resnet18-plain-sgd-landscape-v1",
+    }
+    for name, group in (
+        ("landscape_sgd_cpu_smoke.yaml", "pure-cifar-landscape-cpu-smoke-v2"),
+        ("landscape_sgd_local_gpu_smoke.yaml", "pure-cifar-landscape-local-smoke-v1"),
+        ("landscape_sgd_oscar_smoke.yaml", "pure-cifar-landscape-oscar-smoke-v1"),
+    ):
+        config = configs[name]
+        plain_name = name.replace("landscape_sgd", "plain_sgd")
+        plain_config = configs[plain_name]
+        assert {**plain_config, "protocol": landscape["protocol"], "landscape": True, "run_group": group} == config
 
 
 def _bash() -> str:
@@ -286,6 +315,68 @@ def test_oscar_dry_run_accepts_plain_sgd_protocol(tmp_path):
     assert "Log group: pure-cifar10-resnet18-plain-sgd-v1" in result.stdout
     assert "Run name: pure-cifar10-resnet18-plain-sgd-v1__seed0" in result.stdout
     assert "--seed 0" in result.stdout
+
+
+def test_oscar_dry_run_accepts_plain_sgd_landscape_protocol(tmp_path):
+    bash = _bash()
+    python = shutil.which("python") or shutil.which("python3")
+    if not bash or not python:
+        pytest.skip("bash and python are required for launcher dry-run")
+
+    protocol = "pure-cifar10-resnet18-plain-sgd-landscape-v1"
+    plan = tmp_path / "plain-sgd-landscape-plan.jsonl"
+    plan.write_text(
+        json.dumps(
+            [
+                "python",
+                "-m",
+                "optimizer_resurrection.pure_cifar",
+                "--protocol",
+                protocol,
+                "--seed",
+                "0",
+                "--landscape",
+                "true",
+                "--stage",
+                "exploratory",
+                "--run-group",
+                protocol,
+                "--run-name",
+                f"{protocol}__seed0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_uv = tmp_path / "fake-uv"
+    fake_uv.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\nshift 3\nexec \"$@\"\n",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "UV_BIN": _shell_path(bash, fake_uv),
+            "PLAN_TASK_ID": "0",
+            "DRY_RUN": "1",
+            "PROJECT_ROOT": _shell_path(bash, ROOT),
+        }
+    )
+    result = subprocess.run(
+        [bash, _shell_path(bash, SCRIPT), _shell_path(bash, plan)],
+        check=True,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    assert f"Protocol: {protocol}" in result.stdout
+    assert "Seed: 0" in result.stdout
+    assert "Stage: exploratory" in result.stdout
+    assert f"Log group: {protocol}" in result.stdout
+    assert f"Run name: {protocol}__seed0" in result.stdout
+    assert "--landscape true" in result.stdout
 
 
 def test_oscar_dry_run_rejects_array_task_outside_plan(tmp_path):
