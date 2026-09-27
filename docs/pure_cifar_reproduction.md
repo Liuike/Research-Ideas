@@ -247,3 +247,21 @@ fields and slice point validity masks were verified online. Unit checks include
 closed-form scalar logistic Hessian, state/RNG restoration, large-finite-gradient
 reductions, invalid-eval/finite-batch-stat behavior, unavailable-HVP/valid-slices,
 and exact baseline-versus-instrumented training replay.
+
+
+Oscar validation passed all 244 tests. Shell syntax, both dry runs, and
+`sbatch --test-only` passed. Disposable L40S array `6740194` completed finite;
+its online source/data/model/worker/Slurm/device and substantive diagnostic
+history were verified, including eight measured minibatches, two probes and
+all loss-grid point masks. Its epoch-1 Hessian was valid; initial Hessian and
+some initial slice points were explicitly invalid. Total instrumented smoke
+runtime was 9.320236 seconds, epoch time 1.156456 seconds, and peak allocated
+CUDA memory 1,335,751,680 bytes. Training/test metrics matched the previous
+uninstrumented Oscar smoke. The disposable W&B group was deleted before launch.
+
+Scientific array `6740232` was submitted with `--array=0-0%1`, one L40S, four
+CPUs, 32 GB RAM and a twelve-hour limit. Clean scientific revision:
+`aa064504d03d396443c3e85427049dee4077d89d`; source-tree digest:
+`fef52000a3e685559dd628076bb0b8f62738b3e7541d0001b00deda630b512f0`.
+Checkout: `/oscar/scratch/ezhan153/pure-sgd-landscape-v1`.
+Full-run outcome and landscape interpretation pending.
