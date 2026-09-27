@@ -141,4 +141,36 @@ Submitted Oscar array `6738291` with `--array=0-0%1`, one L40S, four CPUs,
 Oscar. The disposable Oscar smoke `6738040` completed finite; its online
 record verified source/data/model/worker/Slurm/L40S identity, and its group
 was deleted before scientific submission. CPU smoke recorded a final-evaluation
-numerical failure; local GPU smoke completed finite. Full-run outcome pending.
+numerical failure; local GPU smoke completed finite.
+
+### Plain SGD final result (2026-09-27)
+
+The [strict online W&B analysis](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/ux11tiwa)
+verified the single expected condition, clean source, data identity, all 160
+epochs and final evaluation on all 10,000 test examples. Slurm job `6738291_0`
+completed with exit code 0; retained logs show successful W&B synchronization.
+There were no numerical failures, infrastructure failures, incomplete records
+or excluded seeds in this scientific condition.
+
+| Seed-0 condition | Final test accuracy (%) | Test cross-entropy | Training time (min) | W&B run |
+| --- | ---: | ---: | ---: | --- |
+| Plain SGD, momentum 0 | 87.08 | 33.992001 | 35.32 | [kr2n6lak](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/kr2n6lak) |
+| SGD, momentum 0.9 | 94.22 | 0.240884 | 37.49 | [66303l7q](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/66303l7q) |
+
+Plain SGD's accuracy was **7.14 percentage points lower** in this paired seed.
+Online records match the model initialization digest, full dataset digest,
+model seed 0, data seed 100000, order seed 1100003, worker seed 2100003 and
+augmentation seed 3100003. All recipe fields except momentum match. Both used
+the same pinned Python/PyTorch/torchvision/CUDA/cuDNN environment and L40S GPU
+type; source revisions, source-tree digests and scheduler jobs/nodes differ.
+Its training time was 2118.981654 seconds, excluding preparation, initialization
+and final evaluation; scheduler wall time was 35 minutes 47 seconds. Parameter
+count was **11,173,970**, and peak allocated CUDA memory was 1,166,607,360 bytes.
+Final training accuracy was 98.166%, with training loss 0.060588. Test loss was
+large despite finite outputs; these records do not establish its cause.
+One seed provides no across-seed standard deviation or optimizer-ranking claim.
+This remains a CIFAR ResNet-18 architecture adaptation without a published
+accuracy target, and plain SGD is a user-requested change to the paper recipe.
+
+Scientific source-tree SHA256:
+`04f501b6bd54b42c0bd214b2c7648df3c0014b0cccbdbf4b83596100c5184462`.
