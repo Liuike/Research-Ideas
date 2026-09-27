@@ -79,3 +79,36 @@ and readback verified all 32 terminal snapshots and dataset manifests, with
 six unique task/data-seed tensor datasets. The smoke group is
 `punn-adaptive-architecture-cpu-smoke-v1`. These short runs validate the
 implementation; they do not establish 500-epoch numerical stability.
+
+## Scientific execution
+
+The sweep began from clean commit `25e26cf41160bab22c5115859489402333ccca3f`,
+with source-tree SHA-256
+`11fdecaf92fc81a984e1e54b8d7563d5db980d2944c54a3c3e93cb7837b2cf7b`
+(111 files, including the existing ignored package metadata).
+After 63 completed runs, unrelated CIFAR changes in the shared checkout caused
+the clean-source gate to block the other 897 launches before training or W&B
+run creation. Those are launch interruptions, not numerical failures.
+
+Execution resumed in `.cache/adaptive-stability-worktree`, a detached checkout
+of the same commit with the exact original source fingerprint. The recovery
+expanded the unchanged config through `experiment plan`, checked all existing
+records were finished and unique, and skipped their 63 condition IDs. It used
+the same frozen environment and 12 local workers for the remaining 897 commands.
+No recipe, dataset, seed or numerical criterion changed.
+
+Independent in-memory CPU replays reproduced all checked terminal metrics and
+identity/recipe fields exactly for oversized f1 seed zero: AdamW `iyd4bcsn` and
+Muon `f2hqm87k`. Both used archived dataset
+`punn-architecture-data-f1-100000:v1`, completed 500 epochs and processed 18,500
+examples. Final analysis must still verify the entire 960-run matrix.
+
+One online summary, `wid8pa9d` (oversized f4 AdamW seed 10), remained at epoch
+400 after its SDK stream had recorded successful 500-epoch completion. Native
+W&B sync replayed that original stream to the same run ID. Direct API readback
+then matched every terminal field against the SDK snapshot and retained the
+original condition ID and clean scientific provenance. The run's
+`record_recovery` summary records stream SHA-256
+`545992ada1c008b446842af91f5d4de9af4909116899bb10fbcc94aa6286c4f6`;
+training was not repeated. Incremental readback now allows bounded ingestion
+retries but never accepts a missing terminal snapshot.

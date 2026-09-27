@@ -170,20 +170,20 @@ def _plot_report(report: dict[str, Any], adaptive_config: dict[str, Any], artifa
     columns = min(3, len(tasks))
     row_count = (len(tasks) + columns - 1) // columns
     figure, axes = plt.subplots(row_count, columns,
-                                figsize=(5.5 * columns, 3.8 * row_count),
+                                figsize=(5.5 * columns, 4.3 * row_count),
                                 layout="constrained", squeeze=False)
     by_task_arch = {(row["task"], row["architecture"]): row for row in report["rows"]}
+    architecture_labels = {"small": "Small", "oversized": "Oversized",
+                           "regularized": "L2-regularized"}
     for axis, task in zip(axes.flat, tasks):
         architectures = [architecture for architecture in ARCHITECTURES
                          if (task, architecture) in by_task_arch]
         slots = []
-        labels = []
         values = []
         for arch_index, architecture in enumerate(architectures):
             row = by_task_arch[(task, architecture)]
             for method_index, method in enumerate(COMPARISON_METHODS):
                 slots.append(arch_index * len(COMPARISON_METHODS) + method_index)
-                labels.append(METHOD_LABELS[method])
                 values.append(row[method])
         finite = [item["finite_completions"] for item in values]
         failed = [item["numerical_failures"] for item in values]
@@ -193,12 +193,22 @@ def _plot_report(report: dict[str, Any], adaptive_config: dict[str, Any], artifa
             axis.text(slot, value["attempted"] + .3,
                       f'{value["numerical_failures"]}/{value["attempted"]}',
                       ha="center", fontsize=7)
-        tick_labels = []
-        for architecture in architectures:
-            tick_labels.extend([f"{architecture}\n{METHOD_LABELS[method]}"
+        axis.set_xticks(slots, [METHOD_LABELS[method]
+                                for _architecture in architectures
                                 for method in COMPARISON_METHODS])
-        axis.set_xticks(slots, tick_labels)
-        axis.tick_params(axis="x", labelsize=8)
+        axis.tick_params(axis="x", labelsize=8, pad=2)
+        # Use two readable label rows: short method names below each bar, and
+        # architecture names centered beneath each three-method group.
+        for arch_index, architecture in enumerate(architectures):
+            first = arch_index * len(COMPARISON_METHODS)
+            last = first + len(COMPARISON_METHODS) - 1
+            center = (first + last) / 2
+            axis.plot([first - .38, last + .38], [-.22, -.22],
+                      transform=axis.get_xaxis_transform(), color="#777777",
+                      linewidth=.7, clip_on=False)
+            axis.text(center, -.25, architecture_labels[architecture],
+                      transform=axis.get_xaxis_transform(), ha="center", va="top",
+                      fontsize=8, clip_on=False)
         max_attempted = max((value["attempted"] for value in values), default=0)
         axis.set_ylim(0, max_attempted + 4)
         axis.set_title(task)
