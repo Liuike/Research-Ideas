@@ -78,15 +78,47 @@ data, workers, device and Slurm identity were verified and its disposable group
 deleted. These are execution checks with an explicit stability failure, not
 successful scientific fitting.
 
-The frozen five-seed scientific array `6728199` is running from clean revision
-`9e56993` in `/oscar/scratch/ezhan153/pure-cifar-9e56993`, two L40S tasks at a
-time. Initial seeds trained finite full-data epochs at approximately 14 seconds
-per epoch. No frozen hyperparameters were changed in response to smoke failures.
-Scientific completion and final accuracy are pending; consult the online W&B
-group `pure-cifar10-resnet18-v1` for current outcomes.
+The frozen five-seed scientific array `6728199` completed from clean revision
+`9e56993c91c98caf602ac24ccf8fce873b609a28` in
+`/oscar/scratch/ezhan153/pure-cifar-9e56993`, two L40S tasks at a time. All five
+seeds trained 160 full-data epochs and evaluated the final model successfully.
+No frozen hyperparameters were changed in response to smoke failures. There
+were no numerical failures, scheduler failures, excluded seeds, or replacements
+in the scientific study. The smoke evaluation failures did not recur after
+full training; their cause was not established by this study.
 
 Data transport used a mirror after the original Windows downloads failed with
 TLS integrity errors. The archive MD5 matched torchvision's official
 `c58f30108f718f92721af3b95e74349a`; all extracted training/test batch checksums
 were verified by torchvision. A supported alternative SSH cipher allowed the
 verified archive to be transferred locally. Data content and recipe are unchanged.
+
+## Final results (2026-09-26, America/New_York)
+
+The [strict W&B analysis](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/aekcnz2i)
+verified all five expected conditions, exact resolved recipes, clean and
+consistent source, dataset identity, data/order/worker seeds, parameter count,
+terminal states, 160-epoch budgets, and evaluation of all 10,000 test examples.
+Accuracy is the final-model top-1 test accuracy; no test-based selection was used.
+
+| Seed | Test accuracy (%) | Test cross-entropy | Training time (min) | W&B run |
+| --- | ---: | ---: | ---: | --- |
+| 0 | 94.22 | 0.240884 | 37.49 | [66303l7q](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/66303l7q) |
+| 1 | 93.82 | 0.246212 | 37.57 | [0g8c4ohz](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/0g8c4ohz) |
+| 2 | 93.55 | 0.256549 | 38.92 | [peb6bcwp](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/peb6bcwp) |
+| 3 | 93.56 | 0.261568 | 41.30 | [toytuo9u](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/toytuo9u) |
+| 4 | 94.00 | 0.247697 | 37.41 | [3wi45i49](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/3wi45i49) |
+
+Mean test accuracy: **93.83%**, sample SD **0.28827 percentage points** (ddof=1).
+Mean training time: **2312.26 seconds / 38.54 minutes per seed**, excluding data
+preparation, initialization and final test evaluation. Peak allocated CUDA
+memory was 1,210,786,304 bytes for every seed. Parameter count: **11,173,970**.
+These results establish successful execution of the accepted reconstruction.
+The paper has no published CIFAR ResNet-18 number, and this study includes no
+baseline comparison. The initialization, preprocessing, padding and selection
+assumptions above remain limitations.
+
+Source-tree SHA256:
+`3cfd0d038193da5e7518e2cdadef09fb244541a85381ffdd26cc298c8502b40e`.
+Dataset SHA256:
+`6b3883dca6c867f1e58def548c063d1865569b8575fcbce06b3e468a89f9895a`.
