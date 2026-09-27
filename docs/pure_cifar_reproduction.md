@@ -122,3 +122,14 @@ Source-tree SHA256:
 `3cfd0d038193da5e7518e2cdadef09fb244541a85381ffdd26cc298c8502b40e`.
 Dataset SHA256:
 `6b3883dca6c867f1e58def548c063d1865569b8575fcbce06b3e468a89f9895a`.
+
+## Plain SGD seed-0 follow-up
+
+`configs/pure_cifar/plain_sgd_seed0.yaml` registers the user-requested exploratory
+condition `pure-cifar10-resnet18-plain-sgd-v1`. It repeats seed 0 with momentum
+zero, retaining weight decay 0.001, initial learning rate 0.01, the 80/120 decay
+milestones, 160 epochs, batch size 128, architecture, initialization and data
+seeds. The paired momentum-SGD seed-0 reference is 94.22% (run `66303l7q`).
+This is a single-seed optimizer ablation; it does not estimate across-seed
+variation or reproduce a paper-reported plain-SGD result. CPU, local GPU and
+disposable Oscar smoke configs precede scientific submission.

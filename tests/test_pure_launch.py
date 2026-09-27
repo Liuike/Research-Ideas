@@ -46,6 +46,10 @@ def test_pure_cifar_configs_have_the_frozen_protocol_shape_and_values():
             "cpu_smoke.yaml",
             "local_gpu_smoke.yaml",
             "oscar_smoke.yaml",
+            "plain_sgd_seed0.yaml",
+            "plain_sgd_cpu_smoke.yaml",
+            "plain_sgd_local_gpu_smoke.yaml",
+            "plain_sgd_oscar_smoke.yaml",
         )
     }
     assert all(set(config) == CONFIG_FIELDS for config in configs.values())
@@ -80,6 +84,26 @@ def test_pure_cifar_configs_have_the_frozen_protocol_shape_and_values():
     assert configs["local_gpu_smoke.yaml"]["test_examples"] == 256
     assert configs["oscar_smoke.yaml"]["num_workers"] == 4
     assert configs["oscar_smoke.yaml"]["run_group"] == "pure-cifar-oscar-smoke-v1"
+
+    plain = configs["plain_sgd_seed0.yaml"]
+    assert plain == {
+        **defaults,
+        "protocol": "pure-cifar10-resnet18-plain-sgd-v1",
+        "seeds": [0],
+        "momentum": 0.0,
+        "stage": "exploratory",
+        "run_group": "pure-cifar10-resnet18-plain-sgd-v1",
+    }
+    for name, group in (
+        ("plain_sgd_cpu_smoke.yaml", "pure-cifar-plain-sgd-cpu-smoke-v1"),
+        ("plain_sgd_local_gpu_smoke.yaml", "pure-cifar-plain-sgd-local-smoke-v1"),
+        ("plain_sgd_oscar_smoke.yaml", "pure-cifar-plain-sgd-oscar-smoke-v1"),
+    ):
+        config = configs[name]
+        assert config["protocol"] == "pure-cifar10-resnet18-plain-sgd-v1"
+        assert config["momentum"] == 0.0
+        assert config["run_group"] == group
+        assert config["stage"] == "engineering-smoke"
 
 
 def _bash() -> str:
@@ -203,6 +227,65 @@ def test_oscar_dry_run_maps_array_task_to_jsonl_row_and_sets_cache_first(tmp_pat
     observed_cache, observed_wandb = capture.read_text(encoding="utf-8").splitlines()
     assert observed_cache == _shell_path(bash, ROOT / ".cache" / "uv")
     assert observed_wandb == _shell_path(bash, ROOT / "wandb")
+
+
+def test_oscar_dry_run_accepts_plain_sgd_protocol(tmp_path):
+    bash = _bash()
+    python = shutil.which("python") or shutil.which("python3")
+    if not bash or not python:
+        pytest.skip("bash and python are required for launcher dry-run")
+
+    plan = tmp_path / "plain-sgd-plan.jsonl"
+    plan.write_text(
+        json.dumps(
+            [
+                "python",
+                "-m",
+                "optimizer_resurrection.pure_cifar",
+                "--protocol",
+                "pure-cifar10-resnet18-plain-sgd-v1",
+                "--seed",
+                "0",
+                "--stage",
+                "exploratory",
+                "--run-group",
+                "pure-cifar10-resnet18-plain-sgd-v1",
+                "--run-name",
+                "pure-cifar10-resnet18-plain-sgd-v1__seed0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_uv = tmp_path / "fake-uv"
+    fake_uv.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\nshift 3\nexec \"$@\"\n",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "UV_BIN": _shell_path(bash, fake_uv),
+            "PLAN_TASK_ID": "0",
+            "DRY_RUN": "1",
+            "PROJECT_ROOT": _shell_path(bash, ROOT),
+        }
+    )
+    result = subprocess.run(
+        [bash, _shell_path(bash, SCRIPT), _shell_path(bash, plan)],
+        check=True,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    assert "Protocol: pure-cifar10-resnet18-plain-sgd-v1" in result.stdout
+    assert "Seed: 0" in result.stdout
+    assert "Stage: exploratory" in result.stdout
+    assert "Log group: pure-cifar10-resnet18-plain-sgd-v1" in result.stdout
+    assert "Run name: pure-cifar10-resnet18-plain-sgd-v1__seed0" in result.stdout
+    assert "--seed 0" in result.stdout
 
 
 def test_oscar_dry_run_rejects_array_task_outside_plan(tmp_path):

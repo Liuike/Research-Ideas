@@ -102,7 +102,9 @@ for ((index = 0; index < ${#PLAN_COMMAND[@]} - 1; index++)); do
     --run-name) RUN_NAME="${PLAN_COMMAND[$((index + 1))]}" ;;
   esac
 done
-if [[ "${PROTOCOL}" != "pure-cifar10-resnet18-v1" || "${SEED}" == "none" || \
+if [[ ( "${PROTOCOL}" != "pure-cifar10-resnet18-v1" && \
+        "${PROTOCOL}" != "pure-cifar10-resnet18-plain-sgd-v1" ) || \
+      "${SEED}" == "none" || \
       "${STAGE}" == "none" || "${LOG_GROUP}" == "none" || \
       "${RUN_NAME}" == "none" ]]; then
   echo "Plan command lacks protocol/seed/stage/run-group/run-name metadata" >&2

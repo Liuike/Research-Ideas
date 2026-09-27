@@ -42,6 +42,22 @@ def test_frozen_plan_and_recipe_rejection():
     changed["epochs"] = 159
     with pytest.raises(SystemExit):
         pc.expand_config(changed)
+
+
+def test_plain_sgd_is_separate_and_both_recipes_are_frozen():
+    plain = config()
+    plain.update(protocol=pc.PLAIN_PROTOCOL, seeds=[0], momentum=0.0,
+                 stage="exploratory", run_group=pc.PLAIN_PROTOCOL)
+    commands = pc.expand_config(plain)
+    assert len(commands) == 1
+    args = pc.parse_args(commands[0][3:])
+    assert args.seed == 0 and args.data_seed == 100000
+    assert args.momentum == 0.0 and args.weight_decay == .001
+    assert args.run_name == "pure-resnet18-cifar10-plain-sgd-seed0"
+    for recipe, wrong in ((plain, .9), (config(), 0.0)):
+        changed = {**recipe, "momentum": wrong}
+        with pytest.raises(SystemExit):
+            pc.expand_config(changed)
     changed = config()
     changed["secondary"] = False
     with pytest.raises(SystemExit):
@@ -120,6 +136,19 @@ def test_analysis_retains_explicit_failure():
     report = summarize_records(config(), data)
     assert report["completed"] == 4 and report["numerical_failures"] == 1
     assert not report["all_seeds_completed"]
+
+
+def test_analysis_plain_sgd_single_cell():
+    plain = config()
+    plain.update(protocol=pc.PLAIN_PROTOCOL, seeds=[0], momentum=0.0,
+                 stage="exploratory", run_group=pc.PLAIN_PROTOCOL)
+    args = pc.parse_args(pc.expand_config(plain)[0][3:])
+    original = records()[0]
+    resolved = {**vars(args), "provenance": original.config["provenance"]}
+    record = replace(original, config=resolved)
+    report = summarize_records(plain, [record])
+    assert report["expected_cells"] == report["completed"] == 1
+    assert report["sd_test_accuracy_percent"] is None
 
 
 def test_analysis_rejects_running_or_impossible_failure():

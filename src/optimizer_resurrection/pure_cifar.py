@@ -22,6 +22,7 @@ from .train import (_determinism_metadata, _environment_metadata, _git_metadata,
                     _source_tree_digest, seed_everything)
 
 PROTOCOL = "pure-cifar10-resnet18-v1"
+PLAIN_PROTOCOL = "pure-cifar10-resnet18-plain-sgd-v1"
 PARAMETERS = 11_173_970
 MEAN = (0.4914, 0.4822, 0.4465)
 STD = (0.2470, 0.2435, 0.2616)
@@ -35,7 +36,7 @@ FIELDS = {"protocol", "seeds", "data_seed_offset", "epochs", "batch_size",
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--protocol", choices=[PROTOCOL], default=PROTOCOL)
+    p.add_argument("--protocol", choices=[PROTOCOL, PLAIN_PROTOCOL], default=PROTOCOL)
     for name, default in (("seed", 0), ("data-seed", 100000), ("epochs", 160),
                           ("batch-size", 128), ("num-workers", 4),
                           ("train-examples", 50000), ("test-examples", 10000)):
@@ -74,7 +75,8 @@ def parse_args(argv=None):
     if a.stage not in {"engineering-smoke", "test"}:
         frozen = (a.epochs, a.batch_size, a.learning_rate, a.momentum, a.weight_decay,
                   a.milestones, a.gamma, a.train_examples, a.test_examples)
-        if frozen != (160, 128, .01, .9, .001, [80, 120], .1, 50000, 10000):
+        momentum = 0.0 if a.protocol == PLAIN_PROTOCOL else .9
+        if frozen != (160, 128, .01, momentum, .001, [80, 120], .1, 50000, 10000):
             p.error("scientific runs must use the frozen paper reconstruction recipe")
     scientific = {k: v for k, v in vars(a).items() if k not in RUNTIME}
     actual = hashlib.sha256(json.dumps(scientific, sort_keys=True, allow_nan=False).encode()).hexdigest()
@@ -85,7 +87,7 @@ def parse_args(argv=None):
 
 
 def expand_config(config):
-    if set(config) != FIELDS or config["protocol"] != PROTOCOL:
+    if set(config) != FIELDS or config["protocol"] not in {PROTOCOL, PLAIN_PROTOCOL}:
         raise ValueError("invalid PURe config fields or protocol")
     seeds = config["seeds"]
     if not isinstance(seeds, list) or not seeds or len(set(seeds)) != len(seeds):
@@ -93,8 +95,9 @@ def expand_config(config):
     commands = []
     for seed in seeds:
         values = {k: v for k, v in config.items() if k not in {"seeds", "data_seed_offset"}}
+        optimizer_label = "plain-sgd" if config["protocol"] == PLAIN_PROTOCOL else "sgd"
         values.update(seed=seed, data_seed=seed + config["data_seed_offset"],
-                      run_name=f"pure-resnet18-cifar10-sgd-seed{seed}")
+                      run_name=f"pure-resnet18-cifar10-{optimizer_label}-seed{seed}")
         command = ["python", "-m", "optimizer_resurrection.pure_cifar"]
         for key, value in values.items():
             if key == "milestones":

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from .pure_cifar import PARAMETERS, PROTOCOL, expand_config, parse_args
+from .pure_cifar import PARAMETERS, expand_config, parse_args
 from .tracking import RunRecord, load_wandb_credentials, require_online_wandb, wandb_analysis_run
 
 
@@ -18,7 +18,7 @@ def summarize_records(config, records):
                 for a in [parse_args(command[3:])]}
     observed, revisions, digests, data = {}, set(), set(), set()
     for record in records:
-        if record.config.get("protocol") != PROTOCOL:
+        if record.config.get("protocol") != config["protocol"]:
             continue
         condition = record.config.get("condition_id")
         if condition not in expected or condition in observed:
