@@ -53,7 +53,7 @@ def expand_config(
 ) -> list[list[str]]:
     """Expand committed study configs into auditable one-run commands."""
     commands: list[list[str]] = []
-    if config.get("protocol") in {"engelbrecht-gouldie-2024-recorded-v1", "punn-adamw-recorded-v1"}:
+    if config.get("protocol") in {"engelbrecht-gouldie-2024-recorded-v1", "punn-adamw-recorded-v1", "punn-muon-recorded-v1"}:
         from .punn_recorded import expand_config as expand_recorded
         return expand_recorded(config)
     if config.get("protocol") == "pure-cifar10-resnet18-v1":

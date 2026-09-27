@@ -92,6 +92,29 @@ def test_adamw_recorded_plan_keeps_existing_recipe_and_requires_secondary_decay(
         parse_args([*commands[0][3:], "--method", "sgd"])
 
 
+def test_muon_recorded_plan_matches_frozen_gradient_recipe_and_validates_head_rate():
+    config = yaml.safe_load((ROOT / "configs/product_unit/muon_landscape.yaml").read_text())
+    recipe = yaml.safe_load((ROOT / "configs/product_unit/gradient_defaults.yaml").read_text())["recipes"]["muon_moonlight"]
+    commands = expand_config(config)
+    assert len(commands) == 20
+    parsed = [parse_args(command[3:]) for command in commands]
+    assert len({args.condition_id for args in parsed}) == 20
+    for args in parsed:
+        assert args.method == "muon_moonlight" and args.protocol == "punn-muon-recorded-v1"
+        for key in ("learning_rate", "momentum", "weight_decay", "aux_learning_rate"):
+            assert getattr(args, key) == recipe[key]
+        assert args.secondary == "false" and args.epochs == 500
+        assert args.data_seed == 100000 + args.seed
+    with pytest.raises(SystemExit):
+        parse_args([*commands[0][3:], "--aux-learning-rate", "0"])
+    with pytest.raises(SystemExit):
+        parse_args([*commands[0][3:], "--aux-learning-rate", "nan"])
+    with pytest.raises(SystemExit):
+        parse_args([*commands[0][3:], "--method", "adamw"])
+    with pytest.raises(SystemExit):
+        parse_args([*commands[0][3:], "--weight-decay", "0.01"])
+
+
 @pytest.mark.parametrize("method", ["sgd", "pso", "de"])
 def test_state_recording_preserves_exact_training_result_and_keeps_terminal(method):
     from optimizer_resurrection.models import ProductUnitNetwork

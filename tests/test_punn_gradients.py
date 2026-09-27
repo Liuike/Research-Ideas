@@ -38,8 +38,10 @@ def test_sgd_preserves_historical_initialization_order_and_update():
     assert current["pattern_evaluations"] == previous.pattern_evaluations
 
 
-def test_state_observer_is_copy_only_and_preserves_training_rng():
-    trial_args = args("adamw", epochs=2, log_every=1)
+@pytest.mark.parametrize("method", ["adamw", "muon_moonlight"])
+def test_state_observer_is_copy_only_and_preserves_training_rng(method):
+    recipe = {"learning_rate": .02, "momentum": .95} if method == "muon_moonlight" else {}
+    trial_args = args(method, epochs=2, log_every=1, **recipe)
     expected = run_trial(trial_args)
     expected_rng = (random.getstate(), np.random.get_state(), torch.get_rng_state().clone())
     states = []

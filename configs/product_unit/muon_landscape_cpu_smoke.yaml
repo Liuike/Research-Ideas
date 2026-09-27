@@ -1,0 +1,33 @@
+protocol: punn-muon-recorded-v1
+tasks:
+- f1
+- f4
+methods:
+- muon_moonlight
+seeds:
+- 0
+data_seed_offset: 100000
+epochs: 2
+population_size: 4
+search_bound: 1.0
+boundary: clip
+learning_rate: 0.02
+momentum: 0.95
+log_every: 1
+device: cpu
+stage: engineering-smoke
+run_group: punn-muon-landscape-cpu-smoke-v1
+landscape_device: cpu
+landscape_seed_offset: 2000000
+slice_points: 5
+slice_radius: 1.0
+prw_steps: 5
+mrw_steps: 5
+uniform_per_dim: 5
+dispersion_samples: 20
+landscape_batch_size: 32
+landscape_bounds: training-and-paper-wide
+landscape_cpu_reference: 'true'
+weight_decay: 0.0
+secondary: 'false'
+aux_learning_rate: 0.001

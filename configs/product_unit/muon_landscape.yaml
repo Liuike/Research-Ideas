@@ -1,0 +1,43 @@
+# Existing untuned Moonlight Muon recipe; paired landscape extension.
+protocol: punn-muon-recorded-v1
+tasks:
+- f1
+- f4
+methods:
+- muon_moonlight
+seeds:
+- 0
+- 1
+- 2
+- 3
+- 4
+- 5
+- 6
+- 7
+- 8
+- 9
+data_seed_offset: 100000
+epochs: 500
+population_size: 20
+search_bound: 1.0
+boundary: clip
+learning_rate: 0.02
+momentum: 0.95
+log_every: 50
+device: cpu
+stage: exploratory
+run_group: punn-muon-landscape-v1
+landscape_device: cuda
+landscape_seed_offset: 2000000
+slice_points: 31
+slice_radius: 1.0
+prw_steps: 1000
+mrw_steps: 2000
+uniform_per_dim: 500
+dispersion_samples: 2000
+landscape_batch_size: 512
+landscape_bounds: training-and-paper-wide
+landscape_cpu_reference: 'true'
+weight_decay: 0.0
+secondary: 'false'
+aux_learning_rate: 0.001

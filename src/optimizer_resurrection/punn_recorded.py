@@ -31,7 +31,8 @@ from .train import (_determinism_metadata, _environment_metadata, _git_metadata,
 
 PROTOCOL = "engelbrecht-gouldie-2024-recorded-v1"
 ADAMW_PROTOCOL = "punn-adamw-recorded-v1"
-RECORDED_PROTOCOLS = {PROTOCOL, ADAMW_PROTOCOL}
+MUON_PROTOCOL = "punn-muon-recorded-v1"
+RECORDED_PROTOCOLS = {PROTOCOL, ADAMW_PROTOCOL, MUON_PROTOCOL}
 RUNTIME = {"condition_id", "dry_run", "run_group", "run_name", "stage"}
 FIELDS = {"protocol", "tasks", "methods", "seeds", "data_seed_offset", "epochs",
           "population_size", "search_bound", "boundary", "learning_rate", "momentum",
@@ -39,16 +40,17 @@ FIELDS = {"protocol", "tasks", "methods", "seeds", "data_seed_offset", "epochs",
           "landscape_seed_offset", "slice_points", "slice_radius", "prw_steps",
           "mrw_steps", "uniform_per_dim", "dispersion_samples", "landscape_batch_size",
           "landscape_bounds"}
-OPTIONAL_FIELDS = {"landscape_cpu_reference", "weight_decay", "secondary"}
+OPTIONAL_FIELDS = {"landscape_cpu_reference", "weight_decay", "secondary", "aux_learning_rate"}
 
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--protocol", choices=sorted(RECORDED_PROTOCOLS), default=PROTOCOL)
     parser.add_argument("--task", choices=sorted(TASKS), required=True)
-    parser.add_argument("--method", choices=["sgd", "pso", "de", "adamw"], required=True)
+    parser.add_argument("--method", choices=["sgd", "pso", "de", "adamw", "muon_moonlight"], required=True)
     parser.add_argument("--weight-decay", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--secondary", choices=["true", "false"], default=argparse.SUPPRESS)
+    parser.add_argument("--aux-learning-rate", type=float, default=argparse.SUPPRESS)
     for name in ("seed", "data-seed"):
         parser.add_argument("--" + name, type=int, required=True)
     for name, default in (("epochs", 500), ("population-size", 20), ("log-every", 50),
@@ -72,15 +74,21 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--condition-id")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    if args.protocol == ADAMW_PROTOCOL:
-        if args.method != "adamw" or not hasattr(args, "weight_decay") or not hasattr(args, "secondary"):
-            parser.error("AdamW protocol requires method=adamw and explicit weight-decay/secondary")
+    if args.protocol in {ADAMW_PROTOCOL, MUON_PROTOCOL}:
+        method = "adamw" if args.protocol == ADAMW_PROTOCOL else "muon_moonlight"
+        if args.method != method or not hasattr(args, "weight_decay") or not hasattr(args, "secondary"):
+            parser.error(f"{args.protocol} requires method={method} and explicit weight-decay/secondary")
         if not math.isfinite(args.weight_decay) or args.weight_decay < 0:
             parser.error("weight-decay must be finite and nonnegative")
         if args.weight_decay > 0 and args.secondary != "true":
             parser.error("nonzero weight decay requires secondary=true")
-    elif args.method == "adamw" or hasattr(args, "weight_decay") or hasattr(args, "secondary"):
-        parser.error("AdamW and its recipe fields require the AdamW recorded protocol")
+        if args.protocol == MUON_PROTOCOL:
+            if not hasattr(args, "aux_learning_rate") or not math.isfinite(args.aux_learning_rate) or args.aux_learning_rate <= 0:
+                parser.error("Muon protocol requires a finite positive aux-learning-rate")
+        elif hasattr(args, "aux_learning_rate"):
+            parser.error("aux-learning-rate is only used by the Muon recorded protocol")
+    elif args.method in {"adamw", "muon_moonlight"} or any(hasattr(args, key) for key in ("weight_decay", "secondary", "aux_learning_rate")):
+        parser.error("gradient optimizer recipe fields require their recorded extension protocol")
     for key in ("epochs", "log_every", "prw_steps", "mrw_steps", "uniform_per_dim",
                 "dispersion_samples", "landscape_batch_size"):
         if getattr(args, key) < 1:
@@ -301,6 +309,16 @@ def main(argv=None):
                            "optimizer_assignment": "AdamW on all parameters", "tuning_budget": 0,
                            "gradient_clipping": False, "batch_size": 1,
                            "extension_note": "AdamW is an optimizer extension, not a method tested in the 2024 paper."})
+    elif args.protocol == MUON_PROTOCOL:
+        from .optim.moonlight_muon import SOURCE
+        provenance.update({"training": "existing untuned Moonlight Muon recipe; CPU FP32 scalar objective, batch-one seeded order",
+                           "adam_betas": [0.9, 0.95], "adam_epsilon": 1e-8,
+                           "weight_decay": args.weight_decay, "aux_weight_decay": 0.0,
+                           "secondary": args.secondary == "true", "moonlight_source": SOURCE,
+                           "optimizer_assignment": "Moonlight Muon on exponent matrix; AdamW on output weight/bias",
+                           "tuning_budget": 0, "gradient_clipping": False, "batch_size": 1,
+                           "precision": "FP32 including Moonlight Newton-Schulz; no AMP",
+                           "extension_note": "Muon is an optimizer extension, not a method tested in the 2024 paper."})
     import wandb
     run = wandb.init(project=credentials["WANDB_PROJECT"], entity=credentials["WANDB_ENTITY"],
                      name=args.run_name, group=args.run_group, job_type="punn-landscape-recorded",
@@ -340,11 +358,11 @@ def main(argv=None):
             if epoch == 1 or epoch % args.log_every == 0 or epoch == args.epochs:
                 run.log({"epoch": epoch, "train_mse": mse}, step=epoch)
 
-        if args.protocol == ADAMW_PROTOCOL:
+        if args.protocol in {ADAMW_PROTOCOL, MUON_PROTOCOL}:
             from .punn_gradients import run_trial as run_gradient_trial
             result_payload = run_gradient_trial(args, on_epoch=log_epoch, on_state=recorder)
             if result_payload["initialization_digest"] != initialization_digest:
-                raise RuntimeError("recording and AdamW training initializations differ")
+                raise RuntimeError("recording and gradient training initializations differ")
         else:
             result = run_trial(task=args.task, method=args.method, seed=args.seed, data_seed=args.data_seed,
                                epochs=args.epochs, population_size=args.population_size,
@@ -374,8 +392,9 @@ def main(argv=None):
                    "wall_seconds": time.monotonic()-started}
         run.summary.update(payload)
         run.finish(exit_code=1 if result_payload["numerical_failure"] else 0)
-    except BaseException:
-        run.summary.update({"terminal_outcome": "failed", "landscape_status": "failed"})
+    except BaseException as error:
+        run.summary.update({"terminal_outcome": "failed", "landscape_status": "failed",
+                            "recording_failure_type": type(error).__name__})
         run.finish(exit_code=1)
         raise
     print(json.dumps({"run_id": run.id, "url": run.url,
