@@ -101,7 +101,8 @@ Independent in-memory CPU replays reproduced all checked terminal metrics and
 identity/recipe fields exactly for oversized f1 seed zero: AdamW `iyd4bcsn` and
 Muon `f2hqm87k`. Both used archived dataset
 `punn-architecture-data-f1-100000:v1`, completed 500 epochs and processed 18,500
-examples. Final analysis must still verify the entire 960-run matrix.
+examples. The completed strict analysis subsequently verified the entire
+960-run matrix.
 
 One online summary, `wid8pa9d` (oversized f4 AdamW seed 10), remained at epoch
 400 after its SDK stream had recorded successful 500-epoch completion. Native
@@ -129,3 +130,57 @@ direction. Its maximum gradient norm `2.787470588955501e18` matched the saved
 500-epoch maximum. This probe found no normalization overflow in that epoch;
 it does not rule it out in other epochs or cells. These were in-memory
 readback probes, not additional scientific conditions.
+
+## Completed results (2026-09-27)
+
+All 960 adaptive scientific conditions finished and were accepted by the
+strict W&B analysis: 30 distinct seeds in each of the 32 task/architecture/
+optimizer cells. The comparison also accepted all 480 prior SGD conditions,
+with the same dataset, initialization and example-order seed for each paired
+method. There are no excluded scientific seeds. The 897 initially blocked
+launches never became runs and were later completed from the isolated checkout.
+
+Numerical failures out of 30 paired seeds per row:
+
+| Task | Architecture | SGD | AdamW | Muon |
+| --- | --- | ---: | ---: | ---: |
+| f1 | small | 0 | 0 | 0 |
+| f1 | oversized | 2 | 0 | 0 |
+| f4 | small | 4 | 0 | 0 |
+| f4 | oversized | 24 | 0 | 0 |
+| XOR | small | 0 | 0 | 0 |
+| XOR | oversized | 0 | 0 | 0 |
+| XOR | regularized | 0 | 0 | 0 |
+| Iris | small | 19 | 0 | 0 |
+| Iris | oversized | 24 | 2 | 1 |
+| Iris | regularized | 21 | 2 | 1 |
+| Wine | small | 11 | 0 | 0 |
+| Wine | oversized | 30 | 0 | 1 |
+| Wine | regularized | 30 | 0 | 2 |
+| Diabetes | small | 11 | 0 | 0 |
+| Diabetes | oversized | 29 | 0 | 13 |
+| Diabetes | regularized | 30 | 0 | 3 |
+| **Total / 480** | | **235** | **4** | **21** |
+
+All four AdamW and 21 Muon failures were first recorded at the optimizer
+update, with a nonfinite optimizer state. None first appeared during the
+forward pass, backward pass, or final test. Every adaptive failed seed was
+also an SGD failed seed. AdamW completed finitely on 231 seeds that failed
+under SGD, and Muon on 214. This is an observation for the frozen recipes;
+AdamW's 0.01 decoupled decay means the three-way comparison does not isolate
+optimizer mechanics alone.
+
+For oversized Diabetes, explicit L2 reduced Muon failures from 13 to 3 of
+30, rescuing 10 of the 13 failed seeds. AdamW had no numerical failures in
+either architecture. That result is specific to this dataset reconstruction,
+initialization range and fixed optimizer settings. In Wine, L2 increased Muon
+failures from one to two; it did not uniformly improve finite completion.
+The binary failure measure also does not evaluate predictive quality or
+detect every temporary FP32 overflow inside Muon.
+
+The adaptive [W&B analysis run](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/1hew3ft6)
+contains the full 960-run JSON report and numerical-stability figure. The
+strict [three-way comparison run](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/j9tmiup4)
+contains the 16-row paired-seed report and a comparison figure. The reports
+record each failed seed and its run IDs; all source revisions and source-tree
+digests are retained with the W&B records.
