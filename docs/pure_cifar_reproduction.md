@@ -399,6 +399,14 @@ ranking or causal attribution from the local slices.
 
 Momentum-run outcome and measured comparison pending.
 
+Scientific array `6749126` was submitted as `0-0%1`, one L40S, four CPUs,
+32 GB RAM and a twelve-hour limit from clean revision
+`83a02620023a7b333633ba6e4975b3d715cbc7ef`. Its isolated checkout is
+`/oscar/scratch/ezhan153/pure-momentum-landscape-83a0262`. Shell syntax,
+both dry-run plans and `sbatch --test-only` passed. The scientific job uses
+the extracted official CIFAR-10 archive (MD5
+`c58f30108f718f92721af3b95e74349a`) in that checkout.
+
 Engineering validation: 245 tests passed locally (one integration test
 deselected). CPU smoke `nlubdl3h` recorded four finite-gradient minibatches;
 training stayed finite and the final reduced evaluation was nonfinite. Local
@@ -410,3 +418,11 @@ data digest and order/worker/augmentation seeds. Both recorded the same
 nonfinite final evaluation after their reduced one-epoch budget. The full
 160-epoch momentum baseline completed finite; reduced-smoke evaluation
 failure is retained as an engineering observation, not altered by tuning.
+Oscar passed the same 245 tests. The first disposable job `6749005` stopped
+before training because its shared extracted-data target was empty; its log
+retains the infrastructure failure. The official archive was extracted only
+into the new isolated checkout. Corrected disposable job `6749031` completed
+with exit `0:0`, eight gradient minibatches, two probes and all 35 slice masks
+per probe. It recorded finite training and the same reduced-budget final
+evaluation failure. Both disposable W&B records were checked online and their
+group deleted before scientific submission.
