@@ -59,7 +59,7 @@ def expand_config(
     if config.get("protocol") in {"engelbrecht-gouldie-2024-recorded-v1", "punn-adamw-recorded-v1", "punn-muon-recorded-v1"}:
         from .punn_recorded import expand_config as expand_recorded
         return expand_recorded(config)
-    if config.get("protocol") in {"pure-cifar10-resnet18-v1", "pure-cifar10-resnet18-plain-sgd-v1", "pure-cifar10-resnet18-plain-sgd-landscape-v1"}:
+    if config.get("protocol") in {"pure-cifar10-resnet18-v1", "pure-cifar10-resnet18-plain-sgd-v1", "pure-cifar10-resnet18-plain-sgd-landscape-v1", "pure-cifar10-resnet18-momentum-sgd-landscape-v1"}:
         from .pure_cifar import expand_config as expand_pure
         return expand_pure(config)
     if config.get("protocol") == "punn-gradient-defaults-v1":

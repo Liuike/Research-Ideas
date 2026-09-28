@@ -104,7 +104,8 @@ for ((index = 0; index < ${#PLAN_COMMAND[@]} - 1; index++)); do
 done
 if [[ ( "${PROTOCOL}" != "pure-cifar10-resnet18-v1" && \
         "${PROTOCOL}" != "pure-cifar10-resnet18-plain-sgd-v1" && \
-        "${PROTOCOL}" != "pure-cifar10-resnet18-plain-sgd-landscape-v1" ) || \
+        "${PROTOCOL}" != "pure-cifar10-resnet18-plain-sgd-landscape-v1" && \
+        "${PROTOCOL}" != "pure-cifar10-resnet18-momentum-sgd-landscape-v1" ) || \
       "${SEED}" == "none" || \
       "${STAGE}" == "none" || "${LOG_GROUP}" == "none" || \
       "${RUN_NAME}" == "none" ]]; then

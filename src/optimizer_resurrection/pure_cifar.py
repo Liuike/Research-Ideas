@@ -24,6 +24,8 @@ from .train import (_determinism_metadata, _environment_metadata, _git_metadata,
 PROTOCOL = "pure-cifar10-resnet18-v1"
 PLAIN_PROTOCOL = "pure-cifar10-resnet18-plain-sgd-v1"
 LANDSCAPE_PROTOCOL = "pure-cifar10-resnet18-plain-sgd-landscape-v1"
+MOMENTUM_LANDSCAPE_PROTOCOL = "pure-cifar10-resnet18-momentum-sgd-landscape-v1"
+LANDSCAPE_PROTOCOLS = (LANDSCAPE_PROTOCOL, MOMENTUM_LANDSCAPE_PROTOCOL)
 PARAMETERS = 11_173_970
 MEAN = (0.4914, 0.4822, 0.4465)
 STD = (0.2470, 0.2435, 0.2616)
@@ -37,7 +39,7 @@ FIELDS = {"protocol", "seeds", "data_seed_offset", "epochs", "batch_size",
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--protocol", choices=[PROTOCOL, PLAIN_PROTOCOL, LANDSCAPE_PROTOCOL], default=PROTOCOL)
+    p.add_argument("--protocol", choices=[PROTOCOL, PLAIN_PROTOCOL, *LANDSCAPE_PROTOCOLS], default=PROTOCOL)
     p.add_argument("--landscape", choices=["true", "false"], default="false")
     for name, default in (("seed", 0), ("data-seed", 100000), ("epochs", 160),
                           ("batch-size", 128), ("num-workers", 4),
@@ -62,7 +64,7 @@ def parse_args(argv=None):
     except ValueError:
         p.error("milestones must be comma-separated integers or 'none'")
     a.download, a.secondary = a.download == "true", a.secondary == "true"
-    if (a.landscape == "true") != (a.protocol == LANDSCAPE_PROTOCOL):
+    if (a.landscape == "true") != (a.protocol in LANDSCAPE_PROTOCOLS):
         p.error("landscape diagnostics require the separate landscape protocol")
     if a.landscape == "true":
         a.landscape = True
@@ -95,8 +97,8 @@ def parse_args(argv=None):
 
 
 def expand_config(config):
-    fields = FIELDS | ({"landscape"} if config.get("protocol") == LANDSCAPE_PROTOCOL else set())
-    if set(config) != fields or config["protocol"] not in {PROTOCOL, PLAIN_PROTOCOL, LANDSCAPE_PROTOCOL}:
+    fields = FIELDS | ({"landscape"} if config.get("protocol") in LANDSCAPE_PROTOCOLS else set())
+    if set(config) != fields or config["protocol"] not in {PROTOCOL, PLAIN_PROTOCOL, *LANDSCAPE_PROTOCOLS}:
         raise ValueError("invalid PURe config fields or protocol")
     seeds = config["seeds"]
     if not isinstance(seeds, list) or not seeds or len(set(seeds)) != len(seeds):
@@ -104,8 +106,9 @@ def expand_config(config):
     commands = []
     for seed in seeds:
         values = {k: v for k, v in config.items() if k not in {"seeds", "data_seed_offset"}}
-        optimizer_label = "plain-sgd-landscape" if config["protocol"] == LANDSCAPE_PROTOCOL else (
-            "plain-sgd" if config["protocol"] == PLAIN_PROTOCOL else "sgd")
+        optimizer_label = ("plain-sgd-landscape" if config["protocol"] == LANDSCAPE_PROTOCOL else
+                           "momentum-sgd-landscape" if config["protocol"] == MOMENTUM_LANDSCAPE_PROTOCOL else
+                           "plain-sgd" if config["protocol"] == PLAIN_PROTOCOL else "sgd")
         values.update(seed=seed, data_seed=seed + config["data_seed_offset"],
                       run_name=f"pure-resnet18-cifar10-{optimizer_label}-seed{seed}")
         command = ["python", "-m", "optimizer_resurrection.pure_cifar"]

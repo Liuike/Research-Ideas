@@ -171,11 +171,31 @@ def test_landscape_protocol_preserves_legacy_condition_and_frozen_recipe():
     with pytest.raises(SystemExit):
         pc.expand_config({**landscape, "momentum": .9})
 
+    momentum = {**config(), "seeds": [0], "stage": "exploratory"}
+    original = pc.parse_args(pc.expand_config(momentum)[0][3:])
+    recorded = {**momentum, "protocol": pc.MOMENTUM_LANDSCAPE_PROTOCOL,
+                "landscape": True, "run_group": pc.MOMENTUM_LANDSCAPE_PROTOCOL}
+    measured = pc.parse_args(pc.expand_config(recorded)[0][3:])
+    assert not hasattr(original, "landscape")
+    assert measured.landscape and measured.momentum == .9
+    assert measured.condition_id != original.condition_id
+    for key in ("epochs", "batch_size", "learning_rate", "momentum", "weight_decay",
+                "milestones", "gamma", "seed", "data_seed"):
+        assert getattr(measured, key) == getattr(original, key)
+    with pytest.raises(SystemExit):
+        pc.expand_config({**recorded, "landscape": False})
+    with pytest.raises(SystemExit):
+        pc.expand_config({**recorded, "momentum": 0.0})
 
-def test_landscape_training_replay_and_probe_schedule():
+
+@pytest.mark.parametrize("momentum,protocol,baseline_protocol", [
+    (0.0, pc.LANDSCAPE_PROTOCOL, pc.PLAIN_PROTOCOL),
+    (0.9, pc.MOMENTUM_LANDSCAPE_PROTOCOL, pc.PROTOCOL),
+])
+def test_landscape_training_replay_and_probe_schedule(momentum, protocol, baseline_protocol):
     baseline = smoke_args()
-    baseline.momentum = 0.0
-    baseline.protocol = pc.PLAIN_PROTOCOL
+    baseline.momentum = momentum
+    baseline.protocol = baseline_protocol
     models = []
     def factory():
         model = torch.nn.Linear(2, 2)
@@ -183,7 +203,7 @@ def test_landscape_training_replay_and_probe_schedule():
         return model
     reference = pc.run_trial(baseline, loaders=loaders(), model_factory=factory)
     instrumented = copy.deepcopy(baseline)
-    instrumented.protocol = pc.LANDSCAPE_PROTOCOL
+    instrumented.protocol = protocol
     instrumented.landscape = True
     recorded = []
     fixed = loaders()[1].dataset.tensors

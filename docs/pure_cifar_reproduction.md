@@ -374,3 +374,39 @@ Maximum absolute logit was 644,352.4375. Incorrect predictions had mean CE
 262.8236 and confidence 0.7789; correct predictions had mean CE 0.04040 and
 confidence 0.9665. This demonstrates an extreme loss tail, not its mechanism.
 No checkpoint or per-example identity was retained for further attribution.
+
+## Instrumented momentum-SGD seed-0 comparison
+
+`configs/pure_cifar/landscape_momentum_sgd_seed0.yaml` registers a separate
+exploratory run using the original five-seed study's **momentum 0.9** recipe,
+restricted to seed 0. LR 0.01, weight decay 0.001, milestones 80/120, batch
+size 128, 160 epochs, data transformations and model initialization stay
+frozen. The instrumentation, fixed 32-image training subset, probe schedule,
+filter-normalized slice coordinates, curvature estimators, and final test-tail
+diagnostics are identical to the plain-SGD landscape protocol above. The new
+protocol/group is `pure-cifar10-resnet18-momentum-sgd-landscape-v1`.
+
+The primary comparison will pair the momentum run with uninstrumented
+momentum seed-0 run `66303l7q` by initialization and dataset digests, RNG seeds,
+all 160 training losses/accuracies/LRs and final test metrics. It will then
+compare measured stochastic gradient/update trajectories, product activation
+statistics, fixed-subset geometry, local loss slices, BatchNorm mode differences
+and test loss tails with instrumented plain-SGD run `p5gr1t41`. The two
+optimizer runs follow different parameter paths: equal probe coordinates and
+subset permit a controlled diagnostic protocol, but not pointwise comparison
+of the same weights. The comparison is one paired seed, with no optimizer
+ranking or causal attribution from the local slices.
+
+Momentum-run outcome and measured comparison pending.
+
+Engineering validation: 245 tests passed locally (one integration test
+deselected). CPU smoke `nlubdl3h` recorded four finite-gradient minibatches;
+training stayed finite and the final reduced evaluation was nonfinite. Local
+RTX 4060 Ti smoke `g2xaavna` recorded eight finite-gradient minibatches and
+two scheduled probes, with peak allocated memory 1,301,975,040 bytes. Its
+training loss 2.350838363170624 and accuracy 0.111328125 exactly matched
+the prior uninstrumented momentum smoke `xmz4e9pw`, as did initialization,
+data digest and order/worker/augmentation seeds. Both recorded the same
+nonfinite final evaluation after their reduced one-epoch budget. The full
+160-epoch momentum baseline completed finite; reduced-smoke evaluation
+failure is retained as an engineering observation, not altered by tuning.

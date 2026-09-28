@@ -54,6 +54,10 @@ def test_pure_cifar_configs_have_the_frozen_protocol_shape_and_values():
             "landscape_sgd_cpu_smoke.yaml",
             "landscape_sgd_local_gpu_smoke.yaml",
             "landscape_sgd_oscar_smoke.yaml",
+            "landscape_momentum_sgd_seed0.yaml",
+            "landscape_momentum_sgd_cpu_smoke.yaml",
+            "landscape_momentum_sgd_local_gpu_smoke.yaml",
+            "landscape_momentum_sgd_oscar_smoke.yaml",
         )
     }
     landscape_names = {
@@ -61,6 +65,10 @@ def test_pure_cifar_configs_have_the_frozen_protocol_shape_and_values():
         "landscape_sgd_cpu_smoke.yaml",
         "landscape_sgd_local_gpu_smoke.yaml",
         "landscape_sgd_oscar_smoke.yaml",
+        "landscape_momentum_sgd_seed0.yaml",
+        "landscape_momentum_sgd_cpu_smoke.yaml",
+        "landscape_momentum_sgd_local_gpu_smoke.yaml",
+        "landscape_momentum_sgd_oscar_smoke.yaml",
     }
     for name, config in configs.items():
         expected_fields = CONFIG_FIELDS | ({"landscape"} if name in landscape_names else set())
@@ -133,6 +141,22 @@ def test_pure_cifar_configs_have_the_frozen_protocol_shape_and_values():
         plain_name = name.replace("landscape_sgd", "plain_sgd")
         plain_config = configs[plain_name]
         assert {**plain_config, "protocol": landscape["protocol"], "landscape": True, "run_group": group} == config
+
+    momentum = configs["landscape_momentum_sgd_seed0.yaml"]
+    assert momentum == {**defaults,
+                        "protocol": "pure-cifar10-resnet18-momentum-sgd-landscape-v1",
+                        "seeds": [0], "stage": "exploratory", "landscape": True,
+                        "run_group": "pure-cifar10-resnet18-momentum-sgd-landscape-v1"}
+    for suffix in ("cpu_smoke", "local_gpu_smoke", "oscar_smoke"):
+        measured = configs[f"landscape_momentum_sgd_{suffix}.yaml"]
+        paired = configs[f"landscape_sgd_{suffix}.yaml"]
+        for field in ("seeds", "data_seed_offset", "epochs", "batch_size", "learning_rate",
+                      "weight_decay", "milestones", "gamma", "device", "num_workers",
+                      "train_examples", "test_examples", "stage", "landscape"):
+            assert measured[field] == paired[field]
+        assert measured["momentum"] == 0.9
+        assert measured["protocol"] == momentum["protocol"]
+        assert measured["run_group"] != paired["run_group"]
 
 
 def _bash() -> str:
