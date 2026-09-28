@@ -397,7 +397,7 @@ subset permit a controlled diagnostic protocol, but not pointwise comparison
 of the same weights. The comparison is one paired seed, with no optimizer
 ranking or causal attribution from the local slices.
 
-Momentum-run outcome and measured comparison pending.
+The completed result and paired diagnostic comparison follow the launch record.
 
 Scientific array `6749126` was submitted as `0-0%1`, one L40S, four CPUs,
 32 GB RAM and a twelve-hour limit from clean revision
@@ -426,3 +426,138 @@ with exit `0:0`, eight gradient minibatches, two probes and all 35 slice masks
 per probe. It recorded finite training and the same reduced-budget final
 evaluation failure. Both disposable W&B records were checked online and their
 group deleted before scientific submission.
+
+### Completed momentum landscape result
+
+Oscar task `6749126_0` completed `0:0` on gpu3106 in 1:37:05; retained logs
+show successful online W&B synchronization and no infrastructure error.
+[Strict analysis `jw3a3qd9`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/jw3a3qd9)
+verified one expected cell, clean source/data identity, all 160 epochs,
+62,560 gradient minibatches, eight probes, and all 35 validity masks per
+probe. Its [scientific run `rle3qp4d`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/rle3qp4d)
+had no numerical failure or exclusion. Source-tree digest:
+`8ea8075f38a4c3429f41db0c773b924275f2b31fd20d4ecd6b759108dd915a39`.
+Online pairing against original momentum seed-0 run `66303l7q` found exactly
+one row for each epoch 1–160 in both runs. Training loss, accuracy and LR
+matched exactly at every epoch (zero mismatches, maximum absolute difference
+zero); final training and test metrics also matched exactly. Initialization,
+full dataset, order, worker and augmentation identities matched. This is
+observed exact replay on the tested platform, not a general determinism claim.
+
+| Seed-0 SGD condition | Momentum | Final train loss / accuracy | Final test CE / accuracy | Instrumented training time |
+|---|---:|---:|---:|---:|
+| Plain SGD `p5gr1t41` | 0 | 0.060588 / 98.166% | 33.9920 / 87.08% | 5,750.916 s |
+| Momentum SGD `rle3qp4d` | 0.9 | 0.005843 / 99.906% | 0.240884 / 94.22% | 5,800.576 s |
+
+Momentum improved paired seed-0 test accuracy by **7.14 percentage points**
+and avoided the extreme test-loss tail observed without momentum. Both runs
+used 11,173,970 parameters, the same initial model digest
+`4b937bf65d6c6aa3038b317686b7571aacd83379e2efa19eb610439f82d0f4c1`,
+full dataset digest
+`6b3883dca6c867f1e58def548c063d1865569b8575fcbce06b3e468a89f9895a`,
+and order/worker/augmentation seeds 1100003/2100003/3100003. The momentum
+run's measured diagnostic time was 3,520.182 s, and peak allocated CUDA
+memory 1,383,927,296 bytes. Instrumented runtimes include diagnostic work;
+they are not a clean optimizer-speed comparison.
+
+#### Stochastic training gradients and product layers
+
+All 62,560 minibatch data gradients were finite. The table shows per-epoch
+means of minibatch gradient L2 norms, adjacent-gradient cosine, and actual
+parameter-update L2 norms. These gradients use augmented examples and
+training-mode BatchNorm. At a given epoch the two optimizers occupy different
+weight states; the numbers are not gradients at a common parameter point.
+
+| Epoch | Momentum gradient L2 / cosine / update L2 | Plain gradient L2 / cosine / update L2 |
+|---|---:|---:|
+| 1 | 4.391 / 0.1055 / 0.09989 | 15.274 / -0.0037 / 0.15274 |
+| 40 | 3.422 / 0.0154 / 0.07890 | 6.357 / -0.0298 / 0.06358 |
+| 80 | 3.553 / 0.0115 / 0.08213 | 6.407 / -0.0205 / 0.06408 |
+| 81 | 2.667 / 0.0033 / 0.00643 | 5.333 / 0.0022 / 0.00533 |
+| 120 | 1.148 / 0.0014 / 0.00337 | 5.134 / -0.0025 / 0.00513 |
+| 121 | 1.221 / 0.0021 / 0.00036 | 5.009 / 0.0008 / 0.00050 |
+| 160 | 0.878 / 0.0002 / 0.00028 | 4.854 / 0.0013 / 0.00049 |
+
+Momentum epoch-mean gradient norms ranged 0.776–4.391, versus 4.723–15.274
+for plain SGD. Maximum observed minibatch norms were 42.927 and 45.333,
+respectively, both in epoch 1. Momentum's mean adjacent-gradient cosine was
+positive early (0.1055 at epoch 1), then near zero; plain SGD was near zero
+or weakly negative. Epoch-160 weight-decay-effective gradient L2 averaged
+0.879 for momentum versus 4.855 for plain, close to their respective raw
+norms. Actual updates reflect the momentum buffer and learning-rate schedule,
+so they are not simply LR times the current gradient.
+
+At epoch 160 the global exact-zero gradient fraction averaged **3.54%** with
+momentum versus approximately **1.0e-8** without. Momentum's zeros were
+concentrated in ordinary convolution (8.09%) and BN (3.70%) parameter groups;
+product-exponent group zero fraction was about 3.4e-7 and all eight learned
+threshold gradients remained nonzero. Exact zeros do not alone diagnose dead
+units. Final group mean gradient norms with momentum were conv 0.652, product
+exponents 0.524, BN 0.264, head 0.0201, thresholds 0.0332; the corresponding
+plain values were 3.744, 3.048, 0.414, 0.260, 0.0790. Groups differ in size.
+
+Final learned floors spanned 0.0893–0.9705 with momentum, compared with
+0.4582–0.5690 without it. First-training-batch product-layer input-floor
+fractions across epochs/layers spanned 75.45–99.36% with momentum versus
+73.63–90.04% plain. Sampled pre-exponential ranges were -11.548–15.128
+versus -10.242–11.312. All sampled product outputs were finite, with no
+observed exact-zero, overflow or underflow-risk entries. These samples do not
+cover every activation from training or testing.
+
+#### Fixed-subset geometry
+
+Both runs used the same 32 unaugmented normalized training images and relative
+filter-normalized perturbation coordinates. Probes use evaluation-mode BN and
+different current model parameters. The signed Rayleigh value is the
+eight-iteration dominant-*magnitude* Hessian estimate of the regularized
+objective; residual measures approximation quality. Trace is four-vector
+Hutchinson with L2 curvature removed, reported with its standard error.
+
+| Epoch | Momentum eval CE / batch-stat CE | Plain eval CE / batch-stat CE | Momentum signed Rayleigh (residual) | Plain signed Rayleigh (residual) |
+|---|---:|---:|---:|---:|
+| 0 | 1.414e28 / 2.441 | same | invalid | invalid |
+| 1 | 1.496 / 1.579 | 1.957 / 1.952 | 3,510 (0.0155) | 742 (0.3131) |
+| 40 | 0.391 / 0.214 | 498.619 / 0.448 | 10,885 (0.00884) | -3.409e13 (0.0513) |
+| 80 | 2.120 / 0.339 | 2.391 / 0.165 | 65,399 (0.00360) | -8.273e8 (0.00224) |
+| 81 | 0.12264 / 0.18877 | 0.01997 / 0.13435 | 4,730 (0.0182) | 8,334 (0.000323) |
+| 120 | 0.001214 / 0.14418 | 0.003623 / 0.10184 | 405 (0.00155) | 4,184 (0.0000798) |
+| 121 | 0.001109 / 0.13928 | 0.003140 / 0.10068 | 314 (0.0251) | 3,318 (0.000850) |
+| 160 | 0.001139 / 0.13106 | 0.002461 / 0.11166 | 505 (0.000356) | 2,403 (0.00338) |
+
+The shared initial Hessian trace was numerically invalid and only 14/35
+initial loss-slice points were finite. Every later slice point was valid for
+both optimizers. At epoch 40, finite slice CE ranged 0.391–8.376 with
+momentum versus 0.572–9.958e13 plain. At epoch 160, the ranges were
+0.001139–11.253 with momentum versus 0.002461–3.944 plain. Thus the momentum
+endpoint has a smaller estimated dominant curvature along its power direction,
+yet a larger maximum CE over these two sampled relative directions. No single
+probe establishes globally flatter geometry.
+
+At epoch 160, data-only trace estimates were **1,694 ± 517** (momentum) and
+**5,720 ± 1,129** (plain). The four-vector uncertainty is large; the 32-image
+subset and changed weights limit interpretation. At epoch 40 the plain trace
+was -1.431e13 ± 1.677e13, so its sign is uncertain. The large plain-SGD
+epoch-40 evaluation-mode CE and curvature coexist with ordinary finite
+training-mode gradients, and BatchNorm mode is one observed difference; the
+measurements do not identify a single cause. By epoch 160, eval/batch-stat CE
+remained different for both models (0.00114/0.13106 momentum,
+0.00246/0.11166 plain), with 1/32 probe predictions differing in each.
+
+#### Final test loss tails
+
+| Metric | Momentum | Plain |
+|---|---:|---:|
+| Median per-example CE | 0.00106 | 0.000479 |
+| 90th percentile CE | 0.09483 | 1.45439 |
+| 99th percentile CE | 6.3963 | 8.1676 |
+| Maximum per-example CE | **10.49** | **306,684.81** |
+| Maximum absolute logit | 11.53 | 644,352.44 |
+| Incorrect-example mean CE | 3.865 | 262.824 |
+
+The momentum model has no comparable extreme test-loss outlier. Its incorrect
+predictions still averaged confidence 0.8248, versus 0.7789 plain; this
+single-seed result does not establish calibrated probabilities. Final
+accuracy and cross-entropy are measured on the full 10,000-image test set
+once, with no test-based selection. This is a paired descriptive comparison
+of two trajectories under the same protocol, not evidence that momentum
+generally avoids PURe landscape failures across seeds or architectures.
