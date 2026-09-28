@@ -139,6 +139,12 @@ optimizer cells. The comparison also accepted all 480 prior SGD conditions,
 with the same dataset, initialization and example-order seed for each paired
 method. There are no excluded scientific seeds. The 897 initially blocked
 launches never became runs and were later completed from the isolated checkout.
+An independent readback checked all 960 terminal snapshots and all 180
+task/data-seed artifacts: artifact metadata, finite FP32 NPZ tensors,
+content SHA-256, raw-source/data-seed metadata, and cross-architecture/
+optimizer pairing. It found 935 finite completions, 25 scientific numerical
+failures, and no missing snapshots, dataset mismatches or infrastructure
+outcomes.
 
 Numerical failures out of 30 paired seeds per row:
 
