@@ -40,8 +40,10 @@ from .tracking import load_wandb_credentials, require_online_wandb
 
 PROTOCOL = "punn-architecture-stability-v1"
 ADAPTIVE_PROTOCOL = "punn-adaptive-architecture-stability-v1"
+MANIFOLD_PROTOCOL = "punn-manifold-architecture-stability-v1"
 METHOD = "sgd"
 ADAPTIVE_METHODS = ("adamw", "muon_moonlight")
+MANIFOLD_METHOD = "manifold_muon_da10"
 ARCHITECTURES = ("small", "oversized", "regularized")
 CLASSIFICATION_TASKS = {"xor", "iris", "wine", "diabetes"}
 RUNTIME_FIELDS = {"condition_id", "dry_run", "run_group", "run_name", "stage"}
@@ -76,6 +78,9 @@ ADAPTIVE_CONFIG_FIELDS = {
 ADAPTIVE_RECIPE_FIELDS = {
     "learning_rate", "momentum", "weight_decay", "aux_learning_rate", "secondary"
 }
+MANIFOLD_RECIPE_FIELDS = ADAPTIVE_RECIPE_FIELDS | {
+    "manifold_scale", "dual_learning_rate", "dual_iterations"
+}
 ADAPTIVE_RECIPES = {
     "adamw": {
         "learning_rate": 0.001,
@@ -91,6 +96,16 @@ ADAPTIVE_RECIPES = {
         "aux_learning_rate": 0.001,
         "secondary": False,
     },
+}
+MANIFOLD_RECIPE = {
+    "learning_rate": 0.01,
+    "momentum": 0.95,
+    "weight_decay": 0.0,
+    "aux_learning_rate": 0.001,
+    "secondary": False,
+    "manifold_scale": 1.0,
+    "dual_learning_rate": 0.01,
+    "dual_iterations": 10,
 }
 
 
@@ -110,8 +125,8 @@ def _dimensions(task: str, architecture: str) -> tuple[int, int, int]:
 
 def _scientific_values(args: argparse.Namespace) -> dict[str, Any]:
     """Fields that define one immutable condition, including its resolved shape."""
-    if args.protocol == ADAPTIVE_PROTOCOL:
-        return {
+    if args.protocol in {ADAPTIVE_PROTOCOL, MANIFOLD_PROTOCOL}:
+        values = {
             "protocol": args.protocol,
             "task": args.task,
             "architecture": args.architecture,
@@ -129,6 +144,11 @@ def _scientific_values(args: argparse.Namespace) -> dict[str, Any]:
             "hidden_units": args.hidden_units,
             "output_dim": args.output_dim,
         }
+        if args.protocol == MANIFOLD_PROTOCOL:
+            values.update(manifold_scale=args.manifold_scale,
+                          dual_learning_rate=args.dual_learning_rate,
+                          dual_iterations=args.dual_iterations)
+        return values
     return {
         "protocol": args.protocol,
         "task": args.task,
@@ -153,10 +173,10 @@ def _condition_id(values: dict[str, Any]) -> str:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--protocol", choices=[PROTOCOL, ADAPTIVE_PROTOCOL], default=PROTOCOL)
+    parser.add_argument("--protocol", choices=[PROTOCOL, ADAPTIVE_PROTOCOL, MANIFOLD_PROTOCOL], default=PROTOCOL)
     parser.add_argument("--task", choices=sorted(TASK_SPECS), required=True)
     parser.add_argument("--architecture", choices=ARCHITECTURES, required=True)
-    parser.add_argument("--method", choices=[METHOD, *ADAPTIVE_METHODS], default=METHOD)
+    parser.add_argument("--method", choices=[METHOD, *ADAPTIVE_METHODS, MANIFOLD_METHOD], default=METHOD)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--data-seed", type=int, required=True)
     parser.add_argument("--epochs", type=int, default=500)
@@ -166,6 +186,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--aux-learning-rate", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--secondary", choices=["true", "false"], default=argparse.SUPPRESS)
+    parser.add_argument("--manifold-scale", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--dual-learning-rate", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--dual-iterations", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--log-every", type=int, default=50)
     parser.add_argument("--device", choices=["cpu"], default="cpu")
     parser.add_argument("--stage", default="exploratory")
@@ -186,9 +209,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             parser.error("this frozen plain-SGD stability protocol requires learning-rate=0.1")
         if not math.isfinite(args.momentum) or args.momentum != 0.0:
             parser.error("this frozen plain-SGD stability protocol requires momentum=0")
-        if any(hasattr(args, key) for key in ("weight_decay", "aux_learning_rate", "secondary")):
+        if any(hasattr(args, key) for key in MANIFOLD_RECIPE_FIELDS - {"learning_rate", "momentum"}):
             parser.error("adaptive optimizer settings require the adaptive stability protocol")
-    else:
+    elif args.protocol == ADAPTIVE_PROTOCOL:
         if args.method not in ADAPTIVE_METHODS:
             parser.error("the adaptive stability protocol requires AdamW or Muon Moonlight")
         required = ("weight_decay", "aux_learning_rate", "secondary")
@@ -207,6 +230,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             parser.error("weight-decay must be finite and nonnegative")
         if not math.isfinite(args.aux_learning_rate) or args.aux_learning_rate <= 0:
             parser.error("aux-learning-rate must be finite and positive")
+        if any(hasattr(args, key) for key in ("manifold_scale", "dual_learning_rate", "dual_iterations")):
+            parser.error("manifold settings require the manifold stability protocol")
+    else:
+        if args.method != MANIFOLD_METHOD:
+            parser.error("the manifold stability protocol requires manifold_muon_da10")
+        if any(not hasattr(args, key) for key in MANIFOLD_RECIPE_FIELDS):
+            parser.error("manifold stability runs require every frozen DA-10 setting")
+        args.secondary = args.secondary == "true"
+        actual_recipe = {key: getattr(args, key) for key in MANIFOLD_RECIPE_FIELDS}
+        if actual_recipe != MANIFOLD_RECIPE:
+            parser.error("manifold settings must match the registered plain DA-10 recipe")
     if not math.isfinite(args.regularization_lambda) or args.regularization_lambda < 0:
         parser.error("regularization-lambda must be finite and nonnegative")
     if args.architecture == "regularized":
@@ -223,12 +257,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("condition-id does not match resolved scientific configuration")
     args.condition_id = actual
     if args.run_name is None:
-        method_suffix = f"-{args.method}" if args.protocol == ADAPTIVE_PROTOCOL else ""
+        method_suffix = f"-{args.method}" if args.protocol in {ADAPTIVE_PROTOCOL, MANIFOLD_PROTOCOL} else ""
         args.run_name = f"punn-stability-{args.task}-{args.architecture}{method_suffix}-seed{args.seed}"
     return args
 
 
 def expand_config(config: dict[str, Any]) -> list[list[str]]:
+    if config.get("protocol") == MANIFOLD_PROTOCOL:
+        return _expand_manifold_config(config)
     if config.get("protocol") == ADAPTIVE_PROTOCOL:
         return _expand_adaptive_config(config)
     if set(config) != CONFIG_FIELDS or config.get("protocol") != PROTOCOL:
@@ -384,6 +420,52 @@ def _expand_adaptive_config(config: dict[str, Any]) -> list[list[str]]:
     return commands
 
 
+def _expand_manifold_config(config: dict[str, Any]) -> list[list[str]]:
+    """Register only the plain DA-10 condition over the existing 16-cell matrix."""
+    if set(config) != ADAPTIVE_CONFIG_FIELDS or config.get("protocol") != MANIFOLD_PROTOCOL:
+        raise ValueError("invalid manifold architecture-stability config fields")
+    if config.get("methods") != [MANIFOLD_METHOD]:
+        raise ValueError("the plain DA-10 plan requires only manifold_muon_da10")
+    if config.get("optimizer_settings") != {MANIFOLD_METHOD: MANIFOLD_RECIPE}:
+        raise ValueError("the plain DA-10 plan must use the fixed registered recipe")
+    # Reuse the original plan's structural checks for tasks, architecture
+    # variants, seeds, CPU arithmetic, L2 and duplicate-condition rejection.
+    validation_config = {
+        **config,
+        "protocol": ADAPTIVE_PROTOCOL,
+        "methods": ["muon_moonlight"],
+        "optimizer_settings": {"muon_moonlight": ADAPTIVE_RECIPES["muon_moonlight"]},
+    }
+    _expand_adaptive_config(validation_config)
+    commands: list[list[str]] = []
+    for condition, seed in itertools.product(config["conditions"], config["seeds"]):
+        task, architecture = condition["task"], condition["architecture"]
+        values = {
+            "protocol": MANIFOLD_PROTOCOL,
+            "task": task,
+            "architecture": architecture,
+            "method": MANIFOLD_METHOD,
+            "seed": seed,
+            "data_seed": seed + config["data_seed_offset"],
+            "epochs": config["epochs"],
+            "regularization_lambda": (config["regularization_lambda"]
+                                      if architecture == "regularized" else 0.0),
+            **MANIFOLD_RECIPE,
+            "log_every": config["log_every"],
+            "device": config["device"],
+            "stage": config["stage"],
+            "run_group": config["run_group"],
+            "run_name": f"punn-stability-{task}-{architecture}-{MANIFOLD_METHOD}-seed{seed}",
+        }
+        command = ["python", "-m", "optimizer_resurrection.punn_architecture_stability"]
+        for key, value in values.items():
+            rendered = str(value).lower() if isinstance(value, bool) else str(value)
+            command.extend(["--" + key.replace("_", "-"), rendered])
+        parse_args(command[3:])
+        commands.append(command)
+    return commands
+
+
 def _tensor_pattern(named_values: list[tuple[str, torch.Tensor]]) -> dict[str, Any] | None:
     """Return a bounded, serializable location report for the first bad tensor."""
     bad_names = []
@@ -490,13 +572,37 @@ def run_trial(
     seed_everything(args.seed)
     model = ProductUnitNetwork(args.input_dim, args.hidden_units, args.output_dim,
                                input_domain="real_complex", init_bound=1.0).cpu()
-    initialization_digest = hashlib.sha256(
-        b"".join(parameter.detach().contiguous().numpy().tobytes()
-                 for parameter in model.parameters())
-    ).hexdigest()
+    def model_digest() -> str:
+        return hashlib.sha256(
+            b"".join(parameter.detach().contiguous().numpy().tobytes()
+                     for parameter in model.parameters())
+        ).hexdigest()
+
+    preprojection_initialization_digest = model_digest()
+    if args.protocol == MANIFOLD_PROTOCOL:
+        from .optim.manifold_muon import retract_stiefel
+        from .diagnostics.spectra import stiefel_residual
+
+        with torch.no_grad():
+            model.exponents.copy_(retract_stiefel(model.exponents, args.manifold_scale))
+        initial_stiefel_residual = stiefel_residual(model.exponents, args.manifold_scale)
+    initialization_digest = model_digest()
     order_seed = args.seed + 1_000_003
     generator = torch.Generator(device="cpu").manual_seed(order_seed)
-    if args.protocol == ADAPTIVE_PROTOCOL:
+    if args.protocol == MANIFOLD_PROTOCOL:
+        from .optim.manifold_muon import ManifoldMuon
+        from .optim.param_groups import OptimizerBundle
+
+        optimizer = OptimizerBundle(
+            ManifoldMuon([model.exponents], lr=args.learning_rate,
+                         momentum=args.momentum, nesterov=True,
+                         dual_lr=args.dual_learning_rate,
+                         max_iterations=args.dual_iterations,
+                         scale=args.manifold_scale),
+            torch.optim.AdamW(model.output.parameters(), lr=args.aux_learning_rate,
+                              betas=(0.9, 0.95), eps=1e-8, weight_decay=0.0),
+        )
+    elif args.protocol == ADAPTIVE_PROTOCOL:
         # Reuse the frozen comparison builder so AdamW/Muon assignment and
         # optimizer defaults match the existing gradient-defaults experiments.
         from .punn_gradients import build_optimizer as build_product_optimizer
@@ -636,7 +742,22 @@ def run_trial(
                  for parameter in model.parameters() if parameter.grad is not None),
                 default=0.0,
             ))
-            optimizer.step()
+            try:
+                optimizer.step()
+            except torch.linalg.LinAlgError as exc:
+                if args.protocol != MANIFOLD_PROTOCOL:
+                    raise
+                # Finite external gradients can overflow inside DA-10's
+                # dual-ascent matrix products before SVD. A nonconvergent SVD
+                # is therefore a scientific numerical outcome, not an
+                # infrastructure failure that should abort the sweep.
+                note_failure(
+                    reason="manifold_svd_failure", phase="optimizer_update", epoch=epoch,
+                    examples_processed=examples_processed,
+                    pattern={"operation": "manifold_muon_svd",
+                             "exception_type": type(exc).__name__},
+                )
+                break
             bad_parameters = _tensor_pattern(list(model.named_parameters()))
             if bad_parameters is not None:
                 note_failure(
@@ -660,6 +781,21 @@ def run_trial(
                     examples_processed=examples_processed, pattern=bad_optimizer_state,
                 )
                 break
+            if args.protocol == MANIFOLD_PROTOCOL:
+                scalar_state = [
+                    (f"optimizer_state.{optimizer_name}.{name}.{key}", value)
+                    for optimizer_name, active_optimizer in active_optimizers
+                    for name, parameter in model.named_parameters()
+                    for key, value in active_optimizer.state.get(parameter, {}).items()
+                    if isinstance(value, float) and not math.isfinite(value)
+                ]
+                if scalar_state:
+                    note_failure(
+                        reason="nonfinite_optimizer_state", phase="optimizer_update", epoch=epoch,
+                        examples_processed=examples_processed,
+                        pattern={"scalar_state_names": [name for name, _ in scalar_state]},
+                    )
+                    break
         current_sample_index = None
         current_within_epoch_position = None
         if failure is not None:
@@ -736,14 +872,18 @@ def run_trial(
         "order_seed": order_seed,
         "terminal_outcome": "numerical_failure" if numerical_failure else "completed",
     }
-    if args.protocol == ADAPTIVE_PROTOCOL:
+    if args.protocol in {ADAPTIVE_PROTOCOL, MANIFOLD_PROTOCOL}:
         if args.method == "adamw":
             optimizer_name = "torch.optim.AdamW"
             optimizer_assignment = "AdamW over all model parameters"
             optimizer_betas = [0.9, 0.999]
-        else:
+        elif args.method == "muon_moonlight":
             optimizer_name = "MoonlightMuon plus AdamW auxiliary"
             optimizer_assignment = "Moonlight Muon on exponents; AdamW on output weight and bias"
+            optimizer_betas = {"auxiliary_adamw": [0.9, 0.95]}
+        else:
+            optimizer_name = "ManifoldMuon DA-10 plus AdamW auxiliary"
+            optimizer_assignment = "DA-10 Manifold Muon on projected exponents; AdamW on output weight and bias"
             optimizer_betas = {"auxiliary_adamw": [0.9, 0.95]}
         result.update({
             "epochs": args.epochs,
@@ -764,6 +904,17 @@ def run_trial(
         if args.method == "muon_moonlight":
             result["muon_nesterov"] = True
             result["muon_ns_steps"] = 5
+        if args.method == MANIFOLD_METHOD:
+            result.update({
+                "preprojection_initialization_digest": preprojection_initialization_digest,
+                "manifold_scale": args.manifold_scale,
+                "dual_learning_rate": args.dual_learning_rate,
+                "dual_iterations": args.dual_iterations,
+                "manifold_nesterov": True,
+                "initial_stiefel_residual": initial_stiefel_residual,
+                "final_stiefel_residual": stiefel_residual(model.exponents, args.manifold_scale)
+                if bool(torch.isfinite(model.exponents).all()) else None,
+            })
     if failure:
         result["failed_epoch"] = failure["failed_epoch"]
         result["failure_examples_processed"] = failure["examples_processed"]
@@ -828,23 +979,30 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
         "optimizer_resurrection.punn_architecture_stability",
         *(sys.argv[1:] if argv is None else argv),
     ]
-    if args.protocol == ADAPTIVE_PROTOCOL:
+    if args.protocol in {ADAPTIVE_PROTOCOL, MANIFOLD_PROTOCOL}:
         if args.method == "adamw":
             optimizer_name = "torch.optim.AdamW"
             optimizer_assignment = "AdamW over all model parameters"
             optimizer_betas: Any = [0.9, 0.999]
             optimizer_note = "AdamW recipe from configs/product_unit/gradient_defaults.yaml"
-        else:
+        elif args.method == "muon_moonlight":
             from .optim.moonlight_muon import SOURCE as MOONLIGHT_SOURCE
 
             optimizer_name = "MoonlightMuon + torch.optim.AdamW"
             optimizer_assignment = "Moonlight Muon on exponents; AdamW on output weight and bias"
             optimizer_betas = {"auxiliary_adamw": [0.9, 0.95]}
             optimizer_note = "Muon recipe from configs/product_unit/gradient_defaults.yaml"
+        else:
+            optimizer_name = "ManifoldMuon DA-10 + torch.optim.AdamW"
+            optimizer_assignment = "DA-10 on projected exponents; AdamW on output weight and bias"
+            optimizer_betas = {"auxiliary_adamw": [0.9, 0.95]}
+            optimizer_note = "Plain fixed-scale DA-10 recipe; no tuning or extra controls"
         optimizer_provenance = {
             "optimizer": optimizer_name,
             "optimizer_assignment": optimizer_assignment,
-            "optimizer_recipe_source": "configs/product_unit/gradient_defaults.yaml",
+            "optimizer_recipe_source": ("configs/product_unit/manifold_architecture_stability.yaml"
+                                        if args.protocol == MANIFOLD_PROTOCOL else
+                                        "configs/product_unit/gradient_defaults.yaml"),
             "optimizer_recipe": {
                 "learning_rate": args.learning_rate,
                 "momentum": args.momentum,
@@ -861,6 +1019,14 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
             optimizer_provenance["moonlight_source"] = MOONLIGHT_SOURCE
             optimizer_provenance["muon_nesterov"] = True
             optimizer_provenance["muon_ns_steps"] = 5
+        if args.method == MANIFOLD_METHOD:
+            optimizer_provenance.update({
+                "manifold_scale": args.manifold_scale,
+                "dual_learning_rate": args.dual_learning_rate,
+                "dual_iterations": args.dual_iterations,
+                "manifold_nesterov": True,
+                "exponent_projection": "SVD polar projection before training and after every DA-10 update",
+            })
     else:
         optimizer_provenance = {
             "optimizer": "torch.optim.SGD over all parameters; lr=0.1; momentum=0; weight_decay=0"
@@ -874,7 +1040,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
         "precision": "CPU FP32; scalar batch-one updates; no AMP",
         "batch_size": 1,
         "gradient_clipping": False,
-        "parameter_projection": False,
+        "parameter_projection": args.protocol == MANIFOLD_PROTOCOL,
         "regularization": "lambda * sum(parameter ** 2), including output bias",
         "regularization_lambda": args.regularization_lambda,
         "order_seed": args.seed + 1_000_003,
@@ -920,7 +1086,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
         run.summary["dataset_digest"] = digest
         result = run_trial(args, lambda values: _log_training_epoch(run, values),
                            dataset_pair=(dataset, data_metadata))
-        if args.protocol == ADAPTIVE_PROTOCOL:
+        if args.protocol in {ADAPTIVE_PROTOCOL, MANIFOLD_PROTOCOL}:
             result["dataset_artifact"] = dataset_artifact
         _record_terminal_result(run, result)
     except BaseException:
