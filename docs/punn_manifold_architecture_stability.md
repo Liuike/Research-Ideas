@@ -41,6 +41,38 @@ along that manifold, although it still acts on the output head.
 The separate headline Muon/MM study's Gates A–C have not been satisfied for
 this PUNN extension. These runs should not be reported as headline MM results.
 
+## Completed comparison
+
+The [strict four-way W&B analysis](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/ryqcihn3)
+verified all 1,920 accepted outcomes, complete 30-seed cells, fixed recipes,
+clean source provenance, and paired data, sample order, and preprojection
+initialization. Plain DA-10 remained finite through training and final evaluation
+in all 480 runs, including all 16 task/architecture cells.
+
+| Method | Finite completions | Numerical failures | Failure rate |
+| --- | ---: | ---: | ---: |
+| Plain SGD | 245/480 | 235/480 | 49.0% |
+| AdamW | 476/480 | 4/480 | 0.8% |
+| Moonlight Muon | 459/480 | 21/480 | 4.4% |
+| Manifold Muon DA-10 | 480/480 | 0/480 | 0.0% |
+
+The analysis artifact is
+`enyan_zhang1-brown-university/optimizer-resurrection/punn-manifold-architecture-comparison-ryqcihn3:v0`.
+It contains the complete report and `numerical_stability_comparison.png`, with
+all six tasks and the four methods. Numerical failure counts describe stability;
+Stiefel projection changes the expressive family and finite completion does not
+establish good predictive fit.
+
+Thirteen earlier attempts are retained and explicitly excluded from accepted
+outcomes: twelve intentionally interrupted Diabetes oversized runs (seeds 0–11)
+during the GPU investigation, and `7ujudip8` (seed 20), whose W&B record stopped at
+epoch 400 without a terminal outcome. All affected conditions were rerun from the
+same original clean revision. Seed 20's replacement,
+[`qzd71nwl`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/qzd71nwl),
+completed all 500 epochs. No scientific seed is excluded from the final 480-run
+denominator; accepted condition IDs are unique. The report lists every excluded
+attempt's W&B ID and reason.
+
 ## Local GPU check
 
 A separate CUDA engineering smoke completed all 16 cells for two epochs on the
@@ -94,5 +126,9 @@ The explicit analysis-only
 records both raw digests and their exact line-ending manifests. Analysis
 reconstructs and verifies those hashes from the committed files before accepting
 either checkout. It preserves the raw hashes and their run IDs in the W&B report.
+The final report contains 420 accepted outcomes with the original raw digest
+`d5eb86625e3c22be6fb47f51cb32d22578d7118678a141b2f904bf10b729750b` and 60 with the
+resume raw digest
+`d799febd46fb2f5d6af74614eea68ae2112ac7739e5dde4abd1fea355f3afc91`.
 Without this explicit proof, mixed source hashes remain an error. No scientific
 config, source provenance, or recorded outcome is rewritten.
