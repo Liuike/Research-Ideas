@@ -403,6 +403,38 @@ def _manifold_transition(sgd_by_seed: dict[int, dict[str, Any]],
     }
 
 
+def _final_performance(
+    values: list[tuple[RunRecord, dict[str, Any]]], epochs: int,
+) -> dict[str, Any]:
+    """Summarize final prediction MSE only for complete training outcomes."""
+    import numpy as np
+
+    completed = []
+    for record, result in sorted(values, key=lambda item: item[0].config["seed"]):
+        outcome = result.get("terminal_outcome")
+        if outcome == "numerical_failure":
+            continue
+        if outcome != "completed" or result.get("epochs_completed") != epochs:
+            raise ValueError(f"performance requires a completed final epoch: {record.run_id}")
+        sample = {"seed": record.config["seed"], "run_id": record.run_id}
+        for metric in ("train_mse", "test_mse"):
+            value = result.get(metric)
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or value < 0):
+                raise ValueError(f"invalid final performance metric: {record.run_id}: {metric}")
+            sample[metric] = float(value)
+        completed.append(sample)
+    report: dict[str, Any] = {"completed": completed}
+    for metric in ("train_mse", "test_mse"):
+        samples = [item[metric] for item in completed]
+        q25, median, q75 = (map(float, np.quantile(samples, [.25, .5, .75], method="linear"))
+                           if samples else (None, None, None))
+        report[metric] = {"count": len(samples), "median": median, "q25": q25, "q75": q75,
+                          "min": min(samples) if samples else None,
+                          "max": max(samples) if samples else None}
+    return report
+
+
 def build_four_way_comparison_report(
     manifold_config: dict[str, Any], adaptive_config: dict[str, Any],
     baseline_config: dict[str, Any], manifold_records: list[RunRecord],
@@ -452,6 +484,15 @@ def build_four_way_comparison_report(
                           for (task, architecture, seed), (_record, result)
                           in baseline_by_cell.items()}
     manifold_snapshots = {key: result for key, (_record, result) in manifold_by_cell.items()}
+    performance_records = {"sgd": baseline_by_cell, MANIFOLD_METHOD: manifold_by_cell}
+    for method in ADAPTIVE_METHODS:
+        performance_records[method] = {
+            (record.config["task"], record.config["architecture"], record.config["seed"]):
+            (record, _terminal_snapshot(record.summary, record.run_id))
+            for record in adaptive_records
+            if record.config.get("protocol") == adaptive_config["protocol"]
+            and record.config.get("method") == method
+        }
     rows = []
     for row in existing["rows"]:
         task, architecture = row["task"], row["architecture"]
@@ -465,11 +506,26 @@ def build_four_way_comparison_report(
                             if t == task and a == architecture}
         manifold_summary["paired_with_sgd"] = _manifold_transition(sgd_by_seed, manifold_by_seed)
         row[MANIFOLD_METHOD] = manifold_summary
+        for method in FOUR_METHODS:
+            values = [value for (t, a, _seed), value in performance_records[method].items()
+                      if t == task and a == architecture]
+            performance = _final_performance(values, manifold_config["epochs"])
+            if len(performance["completed"]) != row[method]["finite_completions"]:
+                raise ValueError(f"performance completion count mismatch: {task}/{architecture}/{method}")
+            row[method]["final_performance"] = performance
         rows.append(row)
 
     return {
         "protocol": "punn-manifold-architecture-comparison-v1",
         "pairing_verified": True,
+        "performance_measurement": {
+            "metrics": ["train_mse", "test_mse"], "lower_is_better": True,
+            "epochs": manifold_config["epochs"], "quantile_method": "linear",
+            "definition": "Unregularized mean squared prediction error at the final epoch, including classification tasks",
+            "population": "Completed scientific outcomes only; numerical failures have no final performance value",
+            "survivorship_caveat": "Completion counts out of 30 accompany each distribution; methods have different failed-seed sets",
+            "model_caveat": "DA-10 Stiefel projection changes model capacity; f1/small is below-capacity",
+        },
         "device_by_method": {
             "sgd": baseline_config["device"],
             "adamw": adaptive_config["device"],
@@ -672,6 +728,9 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         with artifact.new_file("comparison_report.json", mode="w") as handle:
             json.dump(report, handle, sort_keys=True)
         _plot_four_way_report(report, manifold_config, artifact)
+        from .punn_performance_plot import plot_final_performance
+        for metric in ("test_mse", "train_mse"):
+            plot_final_performance(report, manifold_config, artifact, metric)
         run.log_artifact(artifact)
         artifact.wait()
         run.summary.update({key: value for key, value in report.items()

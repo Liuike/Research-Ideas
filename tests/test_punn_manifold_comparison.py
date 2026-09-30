@@ -7,6 +7,7 @@ import yaml
 from optimizer_resurrection.punn_architecture_stability import expand_config, parse_args
 from optimizer_resurrection.punn_manifold_comparison import (
     MANIFOLD_METHOD,
+    _final_performance,
     _partition_manifold_records,
     _validate_manifold_records,
     _verify_source_equivalence,
@@ -199,6 +200,9 @@ def test_four_way_report_validates_pairing_and_adds_manifold_outcomes(complete_f
     assert row["sgd"]["numerical_failures"] == 1
     assert row["muon_moonlight"]["numerical_failures"] == 1
     assert row[MANIFOLD_METHOD]["numerical_failures"] == 1
+    assert row["sgd"]["final_performance"]["test_mse"]["count"] == 29
+    assert row[MANIFOLD_METHOD]["final_performance"]["test_mse"]["median"] == .3
+    assert 2 not in {item["seed"] for item in row[MANIFOLD_METHOD]["final_performance"]["completed"]}
     transitions = row[MANIFOLD_METHOD]["paired_with_sgd"]
     assert transitions["sgd_only_failed"] == 1
     assert transitions["manifold_only_failed"] == 1
@@ -260,3 +264,39 @@ def test_multiple_raw_source_hashes_require_verified_equivalence(complete_fixtur
     records[0].config["provenance"]["source_tree"]["digest"] = "unregistered"
     with pytest.raises(ValueError, match="outside verified line-ending equivalence"):
         _validate_manifold_records(config, records, proof)
+
+
+def test_final_performance_excludes_partial_failed_metrics_and_retains_zero_mse():
+    values = []
+    for seed, mse in enumerate([0.0, 1.0, 3.0, 10.0]):
+        record = RunRecord(str(seed), "finished", {"seed": seed}, {}, "url")
+        values.append((record, {"terminal_outcome": "completed", "epochs_completed": 500,
+                                "train_mse": mse, "test_mse": mse * 2, "objective": 999.0}))
+    failed = RunRecord("failed", "finished", {"seed": 4}, {}, "url")
+    values.append((failed, {"terminal_outcome": "numerical_failure", "epochs_completed": 3,
+                            "train_mse": 1e-99, "test_mse": 1e-99}))
+    report = _final_performance(values, 500)
+    assert [item["seed"] for item in report["completed"]] == [0, 1, 2, 3]
+    assert report["train_mse"] == {
+        "count": 4, "median": 2.0, "q25": .75, "q75": 4.75, "min": 0.0, "max": 10.0,
+    }
+    assert report["test_mse"]["median"] == 4.0
+    empty = _final_performance([(failed, values[-1][1])], 500)
+    assert empty["completed"] == []
+    assert empty["test_mse"]["count"] == 0
+    assert empty["test_mse"]["median"] is None
+
+
+@pytest.mark.parametrize("value", [None, float("inf"), float("nan"), -.1, True])
+def test_final_performance_rejects_invalid_completed_metrics(value):
+    record = RunRecord("bad", "finished", {"seed": 0}, {}, "url")
+    with pytest.raises(ValueError, match="invalid final performance metric"):
+        _final_performance([(record, {"terminal_outcome": "completed", "epochs_completed": 500,
+                                     "train_mse": .1, "test_mse": value})], 500)
+
+
+def test_final_performance_requires_the_registered_final_epoch():
+    record = RunRecord("bad", "finished", {"seed": 0}, {}, "url")
+    with pytest.raises(ValueError, match="completed final epoch"):
+        _final_performance([(record, {"terminal_outcome": "completed", "epochs_completed": 499,
+                                     "train_mse": .1, "test_mse": .2})], 500)

@@ -73,6 +73,27 @@ completed all 500 epochs. No scientific seed is excluded from the final 480-run
 denominator; accepted condition IDs are unique. The report lists every excluded
 attempt's W&B ID and reason.
 
+## Performance at the final epoch
+
+The same strict comparison also summarizes final unregularized prediction MSE
+on training and held-out test data. MSE is the recorded metric for all six tasks,
+including classification; classification accuracy is not recorded. The L2 term
+is excluded from these MSE values and remains separately recorded in the objective.
+These figures reuse completed W&B terminal records without new training runs.
+
+The performance plots show every completed seed, its method/architecture median
+and interquartile range, and the completed count out of all 30 attempted seeds.
+Only outcomes completing the full 500-epoch budget contribute prediction errors.
+A numerical failure can retain a finite error from an earlier epoch; that partial
+error is excluded. Cells with no finite completion show an unavailable marker.
+Consequently the distributions condition on different surviving seed sets and
+should be read with their completion counts. Raw seed values and W&B IDs remain
+in the analysis artifact; quantiles use linear interpolation.
+
+The logarithmic display floors MSE below 1e-12 at 1e-12 for readability while
+preserving exact values in the report. The Stiefel capacity caveat, especially
+the below-capacity f1 small model, applies to performance comparisons as well.
+
 ## Local GPU check
 
 A separate CUDA engineering smoke completed all 16 cells for two epochs on the
