@@ -30,9 +30,16 @@ def test_interrupted_infrastructure_runs_are_reported_but_not_counted():
     accepted, excluded = _partition_manifold_records([crashed, completed])
     assert accepted == [completed]
     assert excluded == [{
-        "run_id": "interrupted", "state": "crashed", "condition_id": "cell-1",
+        "run_id": "interrupted", "state": "crashed",
+        "reason": "interrupted_infrastructure", "condition_id": "cell-1",
         "task": "diabetes", "architecture": "oversized", "seed": 0,
     }]
+    incomplete = RunRecord(
+        "incomplete", "finished", completed.config,
+        {"epoch": 400}, "https://example.invalid/incomplete")
+    accepted, excluded = _partition_manifold_records([incomplete, completed])
+    assert accepted == [completed]
+    assert excluded[0]["reason"] == "missing_terminal_outcome"
     with pytest.raises(ValueError, match="still active"):
         _partition_manifold_records([
             RunRecord("bad", "running", completed.config, {}, completed.url),

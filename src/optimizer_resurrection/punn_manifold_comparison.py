@@ -531,21 +531,26 @@ def _partition_manifold_records(
     completed = []
     excluded = []
     for record in records:
-        if record.state == "finished":
+        nested = record.summary.get("terminal_result", {})
+        has_scientific_outcome = (
+            record.summary.get("terminal_outcome") in {"completed", "numerical_failure"}
+            or record.summary.get("terminal_result.terminal_outcome")
+            in {"completed", "numerical_failure"}
+            or (isinstance(nested, dict)
+                and nested.get("terminal_outcome") in {"completed", "numerical_failure"})
+        )
+        if record.state == "finished" and has_scientific_outcome:
             completed.append(record)
         else:
-            if record.state not in {"crashed", "failed", "killed"}:
+            if record.state != "finished" and record.state not in {"crashed", "failed", "killed"}:
                 raise ValueError(f"Manifold W&B run is still active or unknown: {record.run_id}: {record.state}")
-            nested = record.summary.get("terminal_result", {})
-            if (record.summary.get("terminal_outcome") in {"completed", "numerical_failure"}
-                    or record.summary.get("terminal_result.terminal_outcome")
-                    in {"completed", "numerical_failure"}
-                    or (isinstance(nested, dict)
-                        and nested.get("terminal_outcome") in {"completed", "numerical_failure"})):
+            if has_scientific_outcome:
                 raise ValueError(f"scientific terminal result is not finished: {record.run_id}")
             excluded.append({
                 "run_id": record.run_id,
                 "state": record.state,
+                "reason": ("missing_terminal_outcome" if record.state == "finished"
+                           else "interrupted_infrastructure"),
                 "condition_id": record.config.get("condition_id"),
                 "task": record.config.get("task"),
                 "architecture": record.config.get("architecture"),
