@@ -81,6 +81,32 @@ including classification; classification accuracy is not recorded. The L2 term
 is excluded from these MSE values and remains separately recorded in the objective.
 These figures reuse completed W&B terminal records without new training runs.
 
+The [final-performance analysis](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/4761ik87)
+publishes `final_train_performance_median_iqr.png` and
+`final_test_performance_median_iqr.png`, together with full seed companion plots.
+Its immutable artifact is
+`enyan_zhang1-brown-university/optimizer-resurrection/punn-final-performance-4761ik87:v0`.
+It renders the already strictly validated report from
+`enyan_zhang1-brown-university/optimizer-resurrection/punn-manifold-architecture-comparison-kin5lru2:v0`,
+rechecks every final MSE and quantile, and preserves all source run IDs and
+excluded infrastructure attempts. No additional training runs were needed.
+
+For the oversized architecture, median final test MSE (completed seeds / 30) is:
+
+| Task | SGD | AdamW | Moonlight Muon | Manifold DA-10 |
+| --- | ---: | ---: | ---: | ---: |
+| f1 | 0.04449 (28) | 0.03434 (30) | 0.02941 (30) | 0.04662 (30) |
+| f4 | 0.006828 (6) | 0.01428 (30) | 0.006709 (30) | 0.01981 (30) |
+| XOR | 0.2138 (30) | 0.6012 (30) | 0.3102 (30) | 0.8464 (30) |
+| Iris | 0.2486 (6) | 0.1580 (28) | 0.07799 (29) | 0.2224 (30) |
+| Wine | unavailable (0) | 0.4823 (30) | 0.2243 (29) | 0.1505 (30) |
+| Diabetes | 0.3537 (1) | 0.1909 (30) | 0.2411 (17) | 0.2293 (30) |
+
+These descriptive medians show that DA-10's finite completion does not imply
+uniformly better prediction error. Its Wine test errors are lower, while other
+tasks favor different methods. The plots retain the IQRs and completion counts;
+in particular, the oversized Diabetes SGD median represents only one seed.
+
 The performance plots show every completed seed, its method/architecture median
 and interquartile range, and the completed count out of all 30 attempted seeds.
 Only outcomes completing the full 500-epoch budget contribute prediction errors.
