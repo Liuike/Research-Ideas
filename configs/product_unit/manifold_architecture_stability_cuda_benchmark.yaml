@@ -1,0 +1,25 @@
+protocol: punn-manifold-architecture-stability-v1
+conditions:
+- task: diabetes
+  architecture: oversized
+seeds:
+- 0
+data_seed_offset: 100000
+epochs: 10
+regularization_lambda: 0.0001
+log_every: 1
+device: cuda
+stage: engineering-smoke
+run_group: punn-manifold-architecture-cuda-benchmark-v1
+methods:
+- manifold_muon_da10
+optimizer_settings:
+  manifold_muon_da10:
+    learning_rate: 0.01
+    momentum: 0.95
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false
+    manifold_scale: 1.0
+    dual_learning_rate: 0.01
+    dual_iterations: 10

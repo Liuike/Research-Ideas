@@ -145,6 +145,10 @@ def _scientific_values(args: argparse.Namespace) -> dict[str, Any]:
             "output_dim": args.output_dim,
         }
         if args.protocol == MANIFOLD_PROTOCOL:
+            # Keep the registered CPU condition IDs stable for the partial
+            # CPU sweep; CUDA gets a distinct identity for different arithmetic.
+            if args.device != "cpu":
+                values["device"] = args.device
             values.update(manifold_scale=args.manifold_scale,
                           dual_learning_rate=args.dual_learning_rate,
                           dual_iterations=args.dual_iterations)
@@ -190,13 +194,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dual-learning-rate", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--dual-iterations", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--log-every", type=int, default=50)
-    parser.add_argument("--device", choices=["cpu"], default="cpu")
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--stage", default="exploratory")
     parser.add_argument("--run-group", required=True)
     parser.add_argument("--run-name")
     parser.add_argument("--condition-id")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if args.device == "cuda" and args.protocol != MANIFOLD_PROTOCOL:
+        parser.error("CUDA is registered only for the Manifold DA-10 stability protocol")
 
     if args.epochs < 1 or args.log_every < 1:
         parser.error("epochs and log-every must be positive")
@@ -428,10 +434,14 @@ def _expand_manifold_config(config: dict[str, Any]) -> list[list[str]]:
         raise ValueError("the plain DA-10 plan requires only manifold_muon_da10")
     if config.get("optimizer_settings") != {MANIFOLD_METHOD: MANIFOLD_RECIPE}:
         raise ValueError("the plain DA-10 plan must use the fixed registered recipe")
+    if config["device"] not in {"cpu", "cuda"}:
+        raise ValueError("Manifold stability device must be cpu or cuda")
     # Reuse the original plan's structural checks for tasks, architecture
-    # variants, seeds, CPU arithmetic, L2 and duplicate-condition rejection.
+    # variants, seeds, L2 and duplicate-condition rejection. The adaptive
+    # plan remains CPU-only; device is validated above for Manifold.
     validation_config = {
         **config,
+        "device": "cpu",
         "protocol": ADAPTIVE_PROTOCOL,
         "methods": ["muon_moonlight"],
         "optimizer_settings": {"muon_moonlight": ADAPTIVE_RECIPES["muon_moonlight"]},
@@ -512,10 +522,11 @@ def _regularization_term(model: ProductUnitNetwork, strength: float) -> torch.Te
     # The selected penalty is lambda * sum(p**2), including the output bias.
     # Avoid evaluating 0 * sum(p**2): a very large but finite parameter can
     # overflow its square and turn an otherwise unregularized run into NaN.
+    zero = next(model.parameters()).new_zeros(())
     if strength == 0.0:
-        return torch.zeros((), dtype=torch.float32)
+        return zero
     return strength * sum((parameter.square().sum() for parameter in model.parameters()),
-                          start=torch.zeros((), dtype=torch.float32))
+                          start=zero)
 
 
 def _dataset_digest(dataset: Any) -> str:
@@ -554,7 +565,7 @@ def run_trial(
     *,
     dataset_pair: tuple[Any, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run one CPU scalar-update condition and stop at its first nonfinite."""
+    """Run one FP32 scalar-update condition and stop at its first nonfinite."""
     started = time.perf_counter()
     seed_everything(args.seed)
     if dataset_pair is None:
@@ -574,11 +585,25 @@ def run_trial(
                                input_domain="real_complex", init_bound=1.0).cpu()
     def model_digest() -> str:
         return hashlib.sha256(
-            b"".join(parameter.detach().contiguous().numpy().tobytes()
+            b"".join(parameter.detach().cpu().contiguous().numpy().tobytes()
                      for parameter in model.parameters())
         ).hexdigest()
 
     preprojection_initialization_digest = model_digest()
+    device = torch.device(args.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("registered CUDA device is unavailable")
+    model = model.to(device)
+    if device.type == "cuda":
+        from dataclasses import replace
+
+        dataset = replace(
+            dataset,
+            train_x=dataset.train_x.to(device),
+            train_y=dataset.train_y.to(device),
+            test_x=dataset.test_x.to(device),
+            test_y=dataset.test_y.to(device),
+        )
     if args.protocol == MANIFOLD_PROTOCOL:
         from .optim.manifold_muon import retract_stiefel
         from .diagnostics.spectra import stiefel_residual
@@ -682,8 +707,8 @@ def run_trial(
             current_sample_index = int(sample_index)
             current_within_epoch_position = within_epoch_position
             optimizer.zero_grad(set_to_none=True)
-            sample_x = train_x[sample_index:sample_index + 1]
-            sample_y = train_y[sample_index:sample_index + 1]
+            sample_x = train_x[current_sample_index:current_sample_index + 1]
+            sample_y = train_y[current_sample_index:current_sample_index + 1]
             prediction = model(sample_x)
             examples_processed += 1
             if not bool(torch.isfinite(prediction).all()):
@@ -1035,9 +1060,9 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
         "git": git,
         "source_tree": _source_tree_digest(root),
         "invocation": _sanitized_invocation(invocation, credentials),
-        "environment": _environment_metadata(torch.device("cpu")),
+        "environment": _environment_metadata(torch.device(args.device)),
         "determinism": _determinism_metadata(args.seed, args.data_seed),
-        "precision": "CPU FP32; scalar batch-one updates; no AMP",
+        "precision": f"{args.device.upper()} FP32; scalar batch-one updates; no AMP",
         "batch_size": 1,
         "gradient_clipping": False,
         "parameter_projection": args.protocol == MANIFOLD_PROTOCOL,

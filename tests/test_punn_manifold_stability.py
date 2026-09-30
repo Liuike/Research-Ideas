@@ -14,6 +14,7 @@ from optimizer_resurrection.punn_landscape import Dataset
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "configs/product_unit/manifold_architecture_stability.yaml"
+CUDA_CONFIG_PATH = ROOT / "configs/product_unit/manifold_architecture_stability_cuda.yaml"
 
 
 def _synthetic_dataset_pair(task: str, data_seed: int) -> tuple[Dataset, dict[str, int]]:
@@ -86,6 +87,21 @@ def test_manifold_plan_has_480_unique_da10_conditions_across_six_tasks():
                for args in parsed if args.architecture == "regularized")
     assert all(args.regularization_lambda == 0.0
                for args in parsed if args.architecture != "regularized")
+
+
+def test_cuda_manifold_plan_preserves_cells_and_has_distinct_condition_ids():
+    cpu = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    cuda = yaml.safe_load(CUDA_CONFIG_PATH.read_text(encoding="utf-8"))
+    cpu_args = [stability.parse_args(command[3:]) for command in stability.expand_config(cpu)]
+    cuda_args = [stability.parse_args(command[3:]) for command in stability.expand_config(cuda)]
+    assert len(cuda_args) == 480
+    assert all(args.device == "cuda" for args in cuda_args)
+    assert {(args.task, args.architecture, args.seed) for args in cpu_args} == {
+        (args.task, args.architecture, args.seed) for args in cuda_args
+    }
+    assert {args.condition_id for args in cpu_args}.isdisjoint(
+        args.condition_id for args in cuda_args
+    )
 
 
 @pytest.mark.parametrize(

@@ -41,6 +41,21 @@ along that manifold, although it still acts on the output head.
 The separate headline Muon/MM study's Gates A–C have not been satisfied for
 this PUNN extension. These runs should not be reported as headline MM results.
 
+## Local GPU check
+
+A separate CUDA engineering smoke completed all 16 cells for two epochs on the
+RTX 4060 Ti; it is not part of the 480-run scientific matrix. A controlled,
+W&B-free Diabetes-shaped oversized trial using synthetic data and the same
+1,152 scalar updates took
+2.07 seconds on CPU and 11.25 seconds on CUDA. One thousand separate 8×8 SVDs
+took 0.014 seconds on CPU and 0.300 seconds on CUDA. DA-10 performs ten such
+SVD-based inner iterations and a polar-retraction SVD for each sample, so this
+small sequential workload is launch- and synchronization-bound on CUDA.
+Luke approved finishing the already-started CPU matrix as an exception to the
+usual preference for GPU execution. The CUDA smoke has its own
+`punn-manifold-architecture-cuda-smoke-v1` W&B group and must not be counted in
+the scientific comparison.
+
 ## Preflight
 
 The registered plan expands to 480 distinct condition IDs. The full

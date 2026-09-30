@@ -37,13 +37,14 @@ def manifold_muon_direction(
     w, transposed = _tall(weight / scale)
     g, _ = _tall(gradient * scale)
     lam = -0.25 * (w.T @ g + g.T @ w)
-    residual = float("inf")
     direction = torch.zeros_like(w)
     for iteration in range(max_iterations):
         direction = matrix_sign_svd(g + 2 * w @ lam)
         tangent_error = w.T @ direction + direction.T @ w
-        residual = float(tangent_error.norm() / math.sqrt(tangent_error.numel()))
         lam.sub_(tangent_error, alpha=dual_lr * (1 - iteration / max_iterations))
+    # Only the final residual is returned. Converting every intermediate
+    # residual to float needlessly synchronizes CUDA on each DA-10 iteration.
+    residual = float(tangent_error.norm() / math.sqrt(tangent_error.numel()))
     # The reference takes W <- W - eta*A, so A is the gradient-like direction.
     if transposed:
         direction = direction.T

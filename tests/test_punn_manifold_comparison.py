@@ -7,6 +7,7 @@ import yaml
 from optimizer_resurrection.punn_architecture_stability import expand_config, parse_args
 from optimizer_resurrection.punn_manifold_comparison import (
     MANIFOLD_METHOD,
+    _partition_manifold_records,
     _validate_manifold_records,
     build_four_way_comparison_report,
 )
@@ -15,6 +16,39 @@ from optimizer_resurrection.tracking import RunRecord
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_interrupted_infrastructure_runs_are_reported_but_not_counted():
+    completed = RunRecord(
+        "completed", "finished", {"condition_id": "cell-1", "task": "diabetes",
+                                   "architecture": "oversized", "seed": 0},
+        {"terminal_outcome": "completed"}, "https://example.invalid/completed")
+    crashed = RunRecord(
+        "interrupted", "crashed", {"condition_id": "cell-1", "task": "diabetes",
+                                  "architecture": "oversized", "seed": 0},
+        {}, "https://example.invalid/interrupted")
+    accepted, excluded = _partition_manifold_records([crashed, completed])
+    assert accepted == [completed]
+    assert excluded == [{
+        "run_id": "interrupted", "state": "crashed", "condition_id": "cell-1",
+        "task": "diabetes", "architecture": "oversized", "seed": 0,
+    }]
+    with pytest.raises(ValueError, match="still active"):
+        _partition_manifold_records([
+            RunRecord("bad", "running", completed.config, {}, completed.url),
+        ])
+    with pytest.raises(ValueError, match="not finished"):
+        _partition_manifold_records([
+            RunRecord("bad", "crashed", completed.config,
+                      {"terminal_result": {"terminal_outcome": "completed"}},
+                      completed.url),
+        ])
+    with pytest.raises(ValueError, match="not finished"):
+        _partition_manifold_records([
+            RunRecord("bad", "crashed", completed.config,
+                      {"terminal_result.terminal_outcome": "numerical_failure"},
+                      completed.url),
+        ])
 
 
 def _configs():

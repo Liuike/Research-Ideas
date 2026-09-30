@@ -1,0 +1,84 @@
+protocol: punn-manifold-architecture-stability-v1
+conditions:
+- task: f1
+  architecture: small
+- task: f1
+  architecture: oversized
+- task: f4
+  architecture: small
+- task: f4
+  architecture: oversized
+- task: xor
+  architecture: small
+- task: xor
+  architecture: oversized
+- task: xor
+  architecture: regularized
+- task: iris
+  architecture: small
+- task: iris
+  architecture: oversized
+- task: iris
+  architecture: regularized
+- task: wine
+  architecture: small
+- task: wine
+  architecture: oversized
+- task: wine
+  architecture: regularized
+- task: diabetes
+  architecture: small
+- task: diabetes
+  architecture: oversized
+- task: diabetes
+  architecture: regularized
+seeds:
+- 0
+- 1
+- 2
+- 3
+- 4
+- 5
+- 6
+- 7
+- 8
+- 9
+- 10
+- 11
+- 12
+- 13
+- 14
+- 15
+- 16
+- 17
+- 18
+- 19
+- 20
+- 21
+- 22
+- 23
+- 24
+- 25
+- 26
+- 27
+- 28
+- 29
+data_seed_offset: 100000
+epochs: 500
+regularization_lambda: 0.0001
+log_every: 50
+device: cuda
+stage: exploratory
+run_group: punn-manifold-architecture-stability-cuda-v1
+methods:
+- manifold_muon_da10
+optimizer_settings:
+  manifold_muon_da10:
+    learning_rate: 0.01
+    momentum: 0.95
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false
+    manifold_scale: 1.0
+    dual_learning_rate: 0.01
+    dual_iterations: 10

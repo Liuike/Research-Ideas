@@ -77,7 +77,7 @@ def _registered_manifold_cells(config: dict[str, Any]) -> set[tuple[str, str, in
         raise ValueError("Manifold Muon plan must preserve the registered 500-epoch budget")
     if (config.get("data_seed_offset") != 100000
             or config.get("regularization_lambda") != 0.0001
-            or config.get("device") != "cpu"):
+            or config.get("device") not in {"cpu", "cuda"}):
         raise ValueError("Manifold Muon plan changed the registered data, regularization, or device recipe")
     return cells
 
@@ -406,6 +406,17 @@ def build_four_way_comparison_report(
     return {
         "protocol": "punn-manifold-architecture-comparison-v1",
         "pairing_verified": True,
+        "device_by_method": {
+            "sgd": baseline_config["device"],
+            "adamw": adaptive_config["device"],
+            "muon_moonlight": adaptive_config["device"],
+            MANIFOLD_METHOD: manifold_config["device"],
+        },
+        "device_comparison_caveat": (
+            "Manifold Muon ran on CUDA while SGD, AdamW, and Moonlight Muon ran on CPU; "
+            "the displayed stability rates are descriptive and device is a confound."
+            if manifold_config["device"] != baseline_config["device"] else None
+        ),
         "baseline_expected_cells": existing["baseline_expected_cells"],
         "baseline_observed_cells": existing["baseline_observed_cells"],
         "adaptive_expected_cells": existing["adaptive_expected_cells"],
@@ -498,14 +509,49 @@ def _plot_four_way_report(report: dict[str, Any], config: dict[str, Any], artifa
         axis.set_visible(False)
     handles, labels = axes.flat[0].get_legend_handles_labels()
     figure.legend(handles, labels, loc="outside lower center", ncol=2, fontsize=9)
+    devices = report["device_by_method"]
+    device_note = (f"DA-10 {devices[MANIFOLD_METHOD].upper()}; other methods "
+                   f"{devices['sgd'].upper()} FP32"
+                   if devices[MANIFOLD_METHOD] != devices["sgd"]
+                   else f"{devices['sgd'].upper()} FP32")
     figure.suptitle(
         "PUNN numerical stability | SGD, AdamW, Moonlight Muon, Manifold Muon DA-10\n"
-        "CPU FP32; frozen recipes; labels show failures/attempts",
+        f"{device_note}; frozen recipes; labels show failures/attempts",
         fontsize=13,
     )
     with artifact.new_file("numerical_stability_comparison.png", mode="wb") as handle:
         figure.savefig(handle, format="png", dpi=160)
     plt.close(figure)
+
+
+def _partition_manifold_records(
+    records: list[RunRecord],
+) -> tuple[list[RunRecord], list[dict[str, Any]]]:
+    """Keep completed scientific runs and describe interrupted infrastructure jobs."""
+    completed = []
+    excluded = []
+    for record in records:
+        if record.state == "finished":
+            completed.append(record)
+        else:
+            if record.state not in {"crashed", "failed", "killed"}:
+                raise ValueError(f"Manifold W&B run is still active or unknown: {record.run_id}: {record.state}")
+            nested = record.summary.get("terminal_result", {})
+            if (record.summary.get("terminal_outcome") in {"completed", "numerical_failure"}
+                    or record.summary.get("terminal_result.terminal_outcome")
+                    in {"completed", "numerical_failure"}
+                    or (isinstance(nested, dict)
+                        and nested.get("terminal_outcome") in {"completed", "numerical_failure"})):
+                raise ValueError(f"scientific terminal result is not finished: {record.run_id}")
+            excluded.append({
+                "run_id": record.run_id,
+                "state": record.state,
+                "condition_id": record.config.get("condition_id"),
+                "task": record.config.get("task"),
+                "architecture": record.config.get("architecture"),
+                "seed": record.config.get("seed"),
+            })
+    return completed, excluded
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
@@ -523,8 +569,13 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
 
     api = wandb.Api(timeout=60)
     project = f"{credentials['WANDB_ENTITY']}/{credentials['WANDB_PROJECT']}"
-    manifold_records = _fetch_group_records(api, project, manifold_config["run_group"],
-                                             manifold_config["protocol"])
+    all_manifold_records = _fetch_group_records(
+        api, project, manifold_config["run_group"], manifold_config["protocol"])
+    # W&B retains interrupted infrastructure jobs. They are not scientific
+    # outcomes; preserve their identities while validating exactly one
+    # completed scientific record per registered condition.
+    manifold_records, excluded_infrastructure = _partition_manifold_records(
+        all_manifold_records)
     adaptive_records = _fetch_group_records(api, project, adaptive_config["run_group"],
                                              adaptive_config["protocol"])
     baseline_records = _fetch_group_records(api, project, baseline_config["run_group"],
@@ -532,6 +583,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     report = build_four_way_comparison_report(
         manifold_config, adaptive_config, baseline_config,
         manifold_records, adaptive_records, baseline_records)
+    report["excluded_infrastructure_runs"] = excluded_infrastructure
+    report["excluded_infrastructure_count"] = len(excluded_infrastructure)
     with wandb_analysis_run("punn-manifold-architecture-comparison",
                             manifold_config["run_group"], "analysis",
                             {"manifold_config": manifold_config,
