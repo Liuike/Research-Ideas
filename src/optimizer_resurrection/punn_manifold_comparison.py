@@ -525,6 +525,7 @@ def build_four_way_comparison_report(
             "population": "Completed scientific outcomes only; numerical failures have no final performance value",
             "survivorship_caveat": "Completion counts out of 30 accompany each distribution; methods have different failed-seed sets",
             "model_caveat": "DA-10 Stiefel projection changes model capacity; f1/small is below-capacity",
+            "plot_views": ["all_seeds", "median_iqr"],
         },
         "device_by_method": {
             "sgd": baseline_config["device"],
@@ -730,7 +731,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         _plot_four_way_report(report, manifold_config, artifact)
         from .punn_performance_plot import plot_final_performance
         for metric in ("test_mse", "train_mse"):
-            plot_final_performance(report, manifold_config, artifact, metric)
+            for view in ("all_seeds", "median_iqr"):
+                plot_final_performance(report, manifold_config, artifact, metric, view=view)
         run.log_artifact(artifact)
         artifact.wait()
         run.summary.update({key: value for key, value in report.items()

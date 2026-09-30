@@ -48,10 +48,13 @@ def _jitter(seed: Any, run_id: Any) -> float:
 
 def plot_final_performance(
     report: dict[str, Any], config: dict[str, Any], artifact: Any, metric: str,
+    *, view: str = "all_seeds",
 ) -> None:
     """Write the six-panel final train or held-out MSE comparison to a W&B artifact."""
     if metric not in {"train_mse", "test_mse"}:
         raise ValueError("metric must be 'train_mse' or 'test_mse'")
+    if view not in {"all_seeds", "median_iqr"}:
+        raise ValueError("view must be 'all_seeds' or 'median_iqr'")
 
     import matplotlib
     matplotlib.use("Agg")
@@ -120,7 +123,8 @@ def plot_final_performance(
                             f"{sample.get(metric)!r}"
                         )
                     shown_value = max(value, DISPLAY_FLOOR)
-                    task_display_values.append(shown_value)
+                    if view == "all_seeds":
+                        task_display_values.append(shown_value)
                     points.append((sample, shown_value))
 
                 summary = performance[metric]
@@ -160,12 +164,13 @@ def plot_final_performance(
                     )
                     continue
 
-                axis.scatter(
-                    [position + _jitter(sample.get("seed"), sample.get("run_id"))
-                     for sample, _value in points],
-                    [value for _sample, value in points],
-                    s=15, color=color, alpha=0.7, edgecolors="none", zorder=2,
-                )
+                if view == "all_seeds":
+                    axis.scatter(
+                        [position + _jitter(sample.get("seed"), sample.get("run_id"))
+                         for sample, _value in points],
+                        [value for _sample, value in points],
+                        s=15, color=color, alpha=0.7, edgecolors="none", zorder=2,
+                    )
 
                 median = summary_values["median"]
                 q25 = summary_values["q25"]
@@ -175,6 +180,9 @@ def plot_final_performance(
                     median, position - 0.18, position + 0.18,
                     color=color, linewidth=2.2, zorder=3,
                 )
+                if view == "median_iqr":
+                    axis.scatter([position], [median], marker="D", s=24,
+                                 color=color, zorder=4)
 
             first = arch_index * (len(METHODS) + 1)
             last = first + len(METHODS) - 1
@@ -224,18 +232,28 @@ def plot_final_performance(
     )
     figure.suptitle(
         f"{metric_title} after 500 epochs | lower is better\n"
-        "FP32, frozen recipes",
+        + ("Median and IQR of completed seeds | " if view == "median_iqr" else "")
+        + "FP32, frozen recipes",
         fontsize=13,
+    )
+    caption = (
+        "Diamond: median; vertical range: IQR; n/30: completed seeds out of 30.\n"
+        "Failed scientific runs omitted; full seed tails available in companion figures; log display floor 1e-12.\n"
+        "Stiefel projection changes model capacity; † f1/small is below-capacity."
+        if view == "median_iqr" else
+        "Dots: completed seeds; colored marks: median and IQR; n/30: completed seeds out of 30.\n"
+        "Failed scientific runs omitted; log display floor 1e-12. "
+        "Stiefel projection changes model capacity; † f1/small is below-capacity."
     )
     figure.text(
         0.5, 0.008,
-        "Dots: completed seeds; colored marks: median and IQR; n/30: completed seeds out of 30.\n"
-        "Failed scientific runs omitted; log display floor 1e-12. "
-        "Stiefel projection changes model capacity; † f1/small is below-capacity.",
+        caption,
         ha="center", va="bottom", fontsize=7.5,
     )
 
     filename = "final_train_performance.png" if metric == "train_mse" else "final_test_performance.png"
+    if view == "median_iqr":
+        filename = filename.replace(".png", "_median_iqr.png")
     with artifact.new_file(filename, mode="wb") as handle:
         figure.savefig(handle, format="png", dpi=160)
     plt.close(figure)

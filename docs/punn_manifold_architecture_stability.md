@@ -89,6 +89,10 @@ error is excluded. Cells with no finite completion show an unavailable marker.
 Consequently the distributions condition on different surviving seed sets and
 should be read with their completion counts. Raw seed values and W&B IDs remain
 in the analysis artifact; quantiles use linear interpolation.
+Each metric has a median/IQR view for comparing typical performance and a full
+seed view exposing finite outliers. The median/IQR view sets its axis limits from
+the displayed quartiles and does not draw tail points; those tails remain visible
+in the full seed companion and retained in the report.
 
 The logarithmic display floors MSE below 1e-12 at 1e-12 for readability while
 preserving exact values in the report. The Stiefel capacity caveat, especially
