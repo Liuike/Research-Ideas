@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -50,6 +52,49 @@ EXPECTED_CONDITIONS = {
     for task in ("xor", "iris", "wine", "diabetes")
     for architecture in ARCHITECTURES
 }
+
+
+def _verify_source_equivalence(manifest: dict[str, Any], root: Path) -> dict[str, Any]:
+    """Reconstruct recorded byte hashes from one commit and explicit line endings."""
+    if manifest.get("protocol") != "punn-source-line-ending-equivalence-v1":
+        raise ValueError("invalid source-equivalence protocol")
+    revision = manifest["revision"]
+    resolved = subprocess.check_output(
+        ["git", "rev-parse", revision + "^{commit}"], cwd=root, text=True).strip()
+    if resolved != revision:
+        raise ValueError("source equivalence requires the full exact commit revision")
+    paths = sorted(path for path in subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", revision], cwd=root, text=True).splitlines()
+        if path.startswith(("src/", "configs/", "scripts/")) or path == "pyproject.toml")
+    if len(paths) != manifest["file_count"]:
+        raise ValueError("source-equivalence file count differs from committed source")
+    blobs = {path: subprocess.check_output(
+        ["git", "show", revision + ":" + path], cwd=root).replace(b"\r\n", b"\n")
+        for path in paths}
+
+    def digest(contents: dict[str, bytes]) -> str:
+        value = hashlib.sha256()
+        for path in paths:
+            value.update(path.encode("utf-8") + b"\0" + contents[path] + b"\0")
+        return value.hexdigest()
+
+    normalized = digest(blobs)
+    if normalized != manifest["normalized_lf_digest"]:
+        raise ValueError("source-equivalence normalized digest differs from committed source")
+    variants = manifest["variants"]
+    if len(variants) < 2 or len({v["raw_digest"] for v in variants}) != len(variants):
+        raise ValueError("source equivalence requires distinct recorded byte digests")
+    for variant in variants:
+        lf_paths = variant["lf_paths"]
+        if (variant.get("default_line_ending") != "CRLF"
+                or len(set(lf_paths)) != len(lf_paths) or not set(lf_paths) <= set(paths)):
+            raise ValueError("invalid source-equivalence line-ending manifest")
+        contents = {path: blob if path in lf_paths else blob.replace(b"\n", b"\r\n")
+                    for path, blob in blobs.items()}
+        if digest(contents) != variant["raw_digest"]:
+            raise ValueError("source-equivalence raw digest does not reconstruct from commit")
+    return {**manifest, "verified": True,
+            "verification": "Exact path-NUL-bytes-NUL SHA256 reconstructed from committed blobs; only LF/CRLF differs"}
 
 
 def _expected_cells(config: dict[str, Any]) -> set[tuple[str, str, int]]:
@@ -130,6 +175,7 @@ def _validate_terminal_outcome(record: RunRecord, result: dict[str, Any], epochs
 
 def _validate_manifold_records(
     config: dict[str, Any], records: list[RunRecord],
+    source_equivalence: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[tuple[str, str, int], tuple[RunRecord, dict[str, Any]]]]:
     """Validate 480 Manifold records and return report plus records by cell."""
     if config.get("protocol") != MANIFOLD_PROTOCOL:
@@ -156,6 +202,7 @@ def _validate_manifold_records(
     observed: dict[tuple[str, str, int], tuple[RunRecord, dict[str, Any]]] = {}
     revisions: set[str] = set()
     source_digests: set[str] = set()
+    source_runs_by_digest: dict[str, list[str]] = defaultdict(list)
     datasets: dict[tuple[str, int], set[str]] = defaultdict(set)
     orders: dict[tuple[str, int], set[int]] = defaultdict(set)
     projected_large_pair: dict[tuple[str, int], set[str]] = defaultdict(set)
@@ -227,6 +274,15 @@ def _validate_manifold_records(
                 raise ValueError(f"missing clean Manifold provenance: {record.run_id}")
             revisions.add(revision)
             source_digests.add(digest)
+            source_runs_by_digest[digest].append(record.run_id)
+            if source_equivalence is not None:
+                source = provenance["source_tree"]
+                if (source_equivalence.get("verified") is not True
+                        or revision != source_equivalence["revision"]
+                        or source.get("algorithm") != "sha256"
+                        or source.get("file_count") != source_equivalence["file_count"]
+                        or digest not in {v["raw_digest"] for v in source_equivalence["variants"]}):
+                    raise ValueError(f"Manifold source is outside verified line-ending equivalence: {record.run_id}")
 
         dataset_digest = result.get("dataset_digest")
         preprojection_digest = result.get("preprojection_initialization_digest")
@@ -280,7 +336,7 @@ def _validate_manifold_records(
            for values in axis.values()):
         raise ValueError("Manifold data, order, or postprojection initialization pairing mismatch")
     if config.get("stage") not in {"engineering-smoke", "test"} and (
-            len(revisions) != 1 or len(source_digests) != 1):
+            len(revisions) != 1 or (len(source_digests) != 1 and source_equivalence is None)):
         raise ValueError("inconsistent Manifold scientific source revision/digest")
 
     rows = []
@@ -308,7 +364,13 @@ def _validate_manifold_records(
         "expected_cells": expected_run_count,
         "observed_cells": len(observed),
         "source_revision": next(iter(revisions), None),
-        "source_tree_digest": next(iter(source_digests), None),
+        "source_tree_digest": (source_equivalence["normalized_lf_digest"]
+                               if source_equivalence else next(iter(source_digests), None)),
+        "source_tree_digest_kind": "verified_lf_normalized" if source_equivalence else "recorded_raw",
+        "recorded_source_tree_digests": sorted(source_digests),
+        "source_runs_by_raw_digest": {key: sorted(values) for key, values
+                                     in sorted(source_runs_by_digest.items())},
+        "source_equivalence": source_equivalence,
         "pairing_verified": True,
         "rows": rows,
         "source_run_ids": sorted(record.run_id for record, _ in observed.values()),
@@ -345,12 +407,14 @@ def build_four_way_comparison_report(
     manifold_config: dict[str, Any], adaptive_config: dict[str, Any],
     baseline_config: dict[str, Any], manifold_records: list[RunRecord],
     adaptive_records: list[RunRecord], baseline_records: list[RunRecord],
+    source_equivalence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate all four complete protocols and pair Manifold Muon to the SGD init."""
     cells = _check_plan_compatibility(manifold_config, adaptive_config, baseline_config)
     existing = build_comparison_report(adaptive_config, baseline_config,
                                        adaptive_records, baseline_records)
-    manifold_report, manifold_by_cell = _validate_manifold_records(manifold_config, manifold_records)
+    manifold_report, manifold_by_cell = _validate_manifold_records(
+        manifold_config, manifold_records, source_equivalence)
 
     baseline_by_cell: dict[tuple[str, str, int], tuple[RunRecord, dict[str, Any]]] = {}
     for record in baseline_records:
@@ -429,6 +493,10 @@ def build_four_way_comparison_report(
         "adaptive_source_tree_digest": existing["adaptive_source_tree_digest"],
         "manifold_source_revision": manifold_report["source_revision"],
         "manifold_source_tree_digest": manifold_report["source_tree_digest"],
+        "manifold_source_tree_digest_kind": manifold_report["source_tree_digest_kind"],
+        "manifold_recorded_source_tree_digests": manifold_report["recorded_source_tree_digests"],
+        "manifold_source_runs_by_raw_digest": manifold_report["source_runs_by_raw_digest"],
+        "manifold_source_equivalence": manifold_report["source_equivalence"],
         "manifold_recipe": MANIFOLD_RECIPE,
         "initialization_pairing": (
             "preprojection_initialization_digest is paired to plain-SGD initialization_digest; "
@@ -564,6 +632,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument("--manifold-config", type=Path, required=True)
     parser.add_argument("--adaptive-config", type=Path, required=True)
     parser.add_argument("--baseline-config", type=Path, required=True)
+    parser.add_argument("--source-equivalence", type=Path)
     args = parser.parse_args(argv)
     manifold_config = yaml.safe_load(args.manifold_config.read_text(encoding="utf-8"))
     adaptive_config = yaml.safe_load(args.adaptive_config.read_text(encoding="utf-8"))
@@ -585,9 +654,12 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
                                              adaptive_config["protocol"])
     baseline_records = _fetch_group_records(api, project, baseline_config["run_group"],
                                              baseline_config["protocol"])
+    source_equivalence = (_verify_source_equivalence(
+        yaml.safe_load(args.source_equivalence.read_text(encoding="utf-8")),
+        Path(__file__).resolve().parents[2]) if args.source_equivalence else None)
     report = build_four_way_comparison_report(
         manifold_config, adaptive_config, baseline_config,
-        manifold_records, adaptive_records, baseline_records)
+        manifold_records, adaptive_records, baseline_records, source_equivalence)
     report["excluded_infrastructure_runs"] = excluded_infrastructure
     report["excluded_infrastructure_count"] = len(excluded_infrastructure)
     with wandb_analysis_run("punn-manifold-architecture-comparison",

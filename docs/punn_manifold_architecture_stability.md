@@ -71,10 +71,28 @@ The registered execution and strict four-method analysis are:
 
 ```powershell
 uv run --frozen --no-sync python -m optimizer_resurrection.experiment plan configs/product_unit/manifold_architecture_stability.yaml --run --workers 12
-uv run --frozen --no-sync python -m optimizer_resurrection.punn_manifold_comparison --manifold-config configs/product_unit/manifold_architecture_stability.yaml --adaptive-config configs/product_unit/adaptive_architecture_stability.yaml --baseline-config configs/product_unit/architecture_stability.yaml
+uv run --frozen --no-sync python -m optimizer_resurrection.punn_manifold_comparison --manifold-config configs/product_unit/manifold_architecture_stability.yaml --adaptive-config configs/product_unit/adaptive_architecture_stability.yaml --baseline-config configs/product_unit/architecture_stability.yaml --source-equivalence configs/product_unit/manifold_source_equivalence.yaml
 ```
 
 The comparison must verify all 480 Manifold, 960 AdamW/Muon, and 480 SGD
 terminal records, reject incomplete or duplicate cells, match dataset and
 order seeds, verify preprojection initialization against SGD, and report
 numerical failures separately from finite but high losses.
+
+## Source formatting audit
+
+The initial and resumed runs used the same clean scientific commit,
+`b0924e4442be23fb02f41f06b1236f48eb892d6a`, but their byte-level source hashes
+differed because of Windows checkout line endings. The initial checkout used
+CRLF for all 121 hashed files except the new comparison module, which used LF;
+the resume checkout used CRLF throughout. Both normalize exactly to the committed
+Git blobs, with LF-normalized digest
+`7250291ef3608fce25fd7db34104f9d276db29f6601ca7f8aab6636c388a7d52`.
+
+The explicit analysis-only
+[`manifold_source_equivalence.yaml`](../configs/product_unit/manifold_source_equivalence.yaml)
+records both raw digests and their exact line-ending manifests. Analysis
+reconstructs and verifies those hashes from the committed files before accepting
+either checkout. It preserves the raw hashes and their run IDs in the W&B report.
+Without this explicit proof, mixed source hashes remain an error. No scientific
+config, source provenance, or recorded outcome is rewritten.

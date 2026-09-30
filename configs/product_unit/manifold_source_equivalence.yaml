@@ -1,0 +1,12 @@
+protocol: punn-source-line-ending-equivalence-v1
+revision: b0924e4442be23fb02f41f06b1236f48eb892d6a
+file_count: 121
+normalized_lf_digest: 7250291ef3608fce25fd7db34104f9d276db29f6601ca7f8aab6636c388a7d52
+variants:
+  - raw_digest: d5eb86625e3c22be6fb47f51cb32d22578d7118678a141b2f904bf10b729750b
+    default_line_ending: CRLF
+    lf_paths:
+      - src/optimizer_resurrection/punn_manifold_comparison.py
+  - raw_digest: d799febd46fb2f5d6af74614eea68ae2112ac7739e5dde4abd1fea355f3afc91
+    default_line_ending: CRLF
+    lf_paths: []

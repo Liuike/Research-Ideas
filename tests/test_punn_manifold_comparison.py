@@ -9,6 +9,7 @@ from optimizer_resurrection.punn_manifold_comparison import (
     MANIFOLD_METHOD,
     _partition_manifold_records,
     _validate_manifold_records,
+    _verify_source_equivalence,
     build_four_way_comparison_report,
 )
 from optimizer_resurrection.punn_architecture_data import RAW_SOURCES
@@ -234,3 +235,28 @@ def test_four_way_report_rejects_a_manifold_initialization_that_does_not_match_s
     with pytest.raises(ValueError, match="preprojection initialization"):
         build_four_way_comparison_report(manifold_config, adaptive_config, baseline_config,
                                          manifold, adaptive, baseline)
+
+
+def test_multiple_raw_source_hashes_require_verified_equivalence(complete_fixture):
+    config, _a, _b, original, _ar, _br = complete_fixture
+    manifest = yaml.safe_load((ROOT / "configs/product_unit/manifold_source_equivalence.yaml")
+                              .read_text(encoding="utf-8"))
+    proof = _verify_source_equivalence(manifest, ROOT)
+    records = deepcopy(original)
+    for index, record in enumerate(records):
+        provenance = record.config["provenance"]
+        provenance["git"]["revision"] = proof["revision"]
+        provenance["source_tree"] = {
+            "algorithm": "sha256", "file_count": proof["file_count"],
+            "digest": proof["variants"][index % 2]["raw_digest"],
+        }
+    with pytest.raises(ValueError, match="inconsistent Manifold scientific source"):
+        _validate_manifold_records(config, records)
+    report, _ = _validate_manifold_records(config, records, proof)
+    assert report["source_tree_digest"] == proof["normalized_lf_digest"]
+    assert report["source_tree_digest_kind"] == "verified_lf_normalized"
+    assert len(report["source_runs_by_raw_digest"]) == 2
+    assert sum(map(len, report["source_runs_by_raw_digest"].values())) == 480
+    records[0].config["provenance"]["source_tree"]["digest"] = "unregistered"
+    with pytest.raises(ValueError, match="outside verified line-ending equivalence"):
+        _validate_manifold_records(config, records, proof)
