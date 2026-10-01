@@ -52,33 +52,6 @@ $env:GIT_CONFIG_COUNT = '1'
 $env:GIT_CONFIG_KEY_0 = 'safe.directory'
 $env:GIT_CONFIG_VALUE_0 = $taskRepository.Replace('\', '/')
 
-if ($DryRun) {
-    # Expand the exact frozen plan for inspection without starting any run.
-    $taskPlanArgs = @(
-        'run', '--frozen', '--no-sync', 'python',
-        '-m', 'optimizer_resurrection.experiment', 'plan', $taskConfig
-    )
-    if ($Resume) {
-        $taskPlanArgs += '--resume'
-    }
-    Write-Output ('DRY RUN: ' + $taskUv + ' ' + ($taskPlanArgs -join ' '))
-    & $taskUv @taskPlanArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "Frozen experiment plan expansion failed with exit code $LASTEXITCODE."
-    }
-    return
-}
-
-# Scientific runs must use a committed snapshot, with no dirty or untracked
-# source that would make the recorded provenance ambiguous.
-$taskGitStatus = @(& git -C $taskRepository status --porcelain --untracked-files=all)
-if ($LASTEXITCODE -ne 0) {
-    throw 'Could not inspect the source checkout before starting the sweep.'
-}
-if ($taskGitStatus.Count -gt 0) {
-    throw 'The scientific source checkout is not clean. Commit the intended source and config before launching the sweep.'
-}
-
 # Only load the three allowlisted W&B variables, and never replace a value
 # already present in the process environment.
 $taskCredentialPath = Join-Path $taskEnvironmentRoot '.secrets/env'
@@ -106,6 +79,34 @@ if (Test-Path -LiteralPath $taskCredentialPath -PathType Leaf) {
         }
     }
 }
+
+if ($DryRun) {
+    # Expand the exact frozen plan for inspection without starting any run.
+    $taskPlanArgs = @(
+        'run', '--frozen', '--no-sync', 'python',
+        '-m', 'optimizer_resurrection.experiment', 'plan', $taskConfig
+    )
+    if ($Resume) {
+        $taskPlanArgs += '--resume'
+    }
+    Write-Output ('DRY RUN: ' + $taskUv + ' ' + ($taskPlanArgs -join ' '))
+    & $taskUv @taskPlanArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "Frozen experiment plan expansion failed with exit code $LASTEXITCODE."
+    }
+    return
+}
+
+# Scientific runs must use a committed snapshot, with no dirty or untracked
+# source that would make the recorded provenance ambiguous.
+$taskGitStatus = @(& git -C $taskRepository status --porcelain --untracked-files=all)
+if ($LASTEXITCODE -ne 0) {
+    throw 'Could not inspect the source checkout before starting the sweep.'
+}
+if ($taskGitStatus.Count -gt 0) {
+    throw 'The scientific source checkout is not clean. Commit the intended source and config before launching the sweep.'
+}
+
 $taskMissingCredentials = @(
     $taskAllowedCredentialNames | Where-Object {
         -not [Environment]::GetEnvironmentVariable($_, 'Process')
