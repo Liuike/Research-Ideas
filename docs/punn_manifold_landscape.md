@@ -1,14 +1,18 @@
-# DA-10 GPU landscape rerun
+# DA-10 recorded landscape study
 
-Luke requested a GPU rerun of the completed six-task DA-10 study with both
-ordinary parameter slices and feasible manifold slices. The frozen record is
+The recorded study completed all 480 logical conditions: 116 on CUDA and 364
+on CPU, following Luke's request to stop the GPU sweep and transfer remaining
+conditions to CPU. Both ordinary parameter slices and feasible manifold slices
+were retained. The initial frozen record is
 [`manifold_landscape_gpu.yaml`](../configs/product_unit/manifold_landscape_gpu.yaml):
 the same 16 task/architecture cells, 30 seeds each, and 500 epochs (480 runs).
-Training and landscape evaluation both use the local RTX 4060 Ti, FP32.
+The continuation uses `manifold_landscape_cpu_continuation.yaml`. Training and
+landscape evaluation use the same explicit device within each run, in FP32.
 The original CPU outcomes are retained as a separate study. Plain DA-10's
 learning rates, momentum, ten dual iterations, scale 1, auxiliary AdamW head,
 batch-one sample order, and explicit classification L2 settings are unchanged.
-There is no tuning, clipping, mixed precision, or CPU fallback.
+There is no tuning, clipping or mixed precision; device assignments are explicit
+in the registered GPU and CPU configurations.
 
 Each run records copied parameter states at initialization, every completed
 epoch, and terminal outcome into W&B-owned artifacts. At initialization,
@@ -245,3 +249,119 @@ The controller remains running. A refreshed snapshot showed eight CPU workers
 on diabetes-oversized seeds24-29 and diabetes-regularized seeds0-1, ranging from
 initialization to epoch400. No duplicate controller or concurrent retry was
 started. The frozen source and recipe are unchanged; hourly monitoring continues.
+
+## Final verification and comparisons, October 1, 2026
+
+All 480 uniquely accepted runs completed 500 epochs with complete immutable
+recordings and **zero numerical failures**:116 CUDA and 364 CPU. The original
+dispatcher ended with `execution_failure` because of the documented W&B timeout.
+After its workers exited, strict `-DryRun -Resume` accepted479 conditions and
+selected only iris-oversized seed21. Retry controller
+[`gnxjbr6w`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/gnxjbr6w)
+completed successfully; accepted retry
+[`5d8b3j1y`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/5d8b3j1y)
+retains the full recording. Four GPU interruptions and CPU attempt `4mpnp4hr`
+remain preserved and excluded rather than counted as outcomes.
+
+The final audit checked exact frozen configs, each device's clean revision/raw
+source digest, and the immutable hardware-transfer mapping. All 480 raw payloads
+and datasets were read back from W&B with live entry-MD5 verification. Each run
+has 502 states and 13 slices per view:240,960 states and 12,480 slices in total.
+Epoch500 and terminal remain separate. Checks cover dataset/seed/order identity,
+phase-to-state indices, parameter digests, finite masks, seeded/projected
+directions, centers, independently recomputed L2, objective=MSE+L2, displacement
+and feasibility. Independent CPU evaluations checked all centers, terminal
+train/test MSE, and two terminal corners per view. Maximum center relative
+difference:3.82e-6; corner difference:4.66e-6; feasible Stiefel residual:2.04e-6.
+All recorded MSE grid values were finite. Completion does not imply low loss:
+the terminal performance graph retains large finite outliers.
+
+Authoritative raw audit:
+[`kct323zf`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/kct323zf).
+Final visually checked graph bundle and machine-readable report:
+[`e00u5oe9`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/e00u5oe9),
+artifact `punn-da10-recorded-landscape-comparison-e00u5oe9:v0`. Plotting used clean
+analysis revision `0d28fae`; scientific checkouts remained unchanged. It contains:
+
+- `da10_terminal_landscape_sensitivity.png`: all 16 cells,30 seeds, paired
+  ambient/feasible terminal sensitivity with full individual tails.
+- `da10_landscape_sensitivity_over_epochs.png`: median/IQR at every retained
+  checkpoint, with the distinct terminal snapshot marked at 500.
+- `optimizer_baseline_landscape_sensitivity.png`: f1/f4 small models, seeds 0–9,
+  SGD/AdamW/Moonlight Muon/DA-10. Colored bars use each method's available
+  endpoints; diamonds use the same cohort completed by all four methods.
+- `da10_terminal_prediction_mse.png`: terminal train and held-out prediction
+  MSE for all six tasks/architectures, separate from the L2 objective.
+- `da10_four_method_terminal_surfaces.png`: actual retained grids for the lowest
+  shared completed seed (f1 seed1, f4 seed2), selected without inspecting surface
+  values. Each task uses one common color scale.
+
+### Ambient versus feasible neighborhoods
+
+The statistic is the 95th percentile of `|MSE(candidate)-MSE(center)|` over 961
+grid points, then the median across 30 seeds. It measures sampled 2D sensitivity,
+not Hessian sharpness or full-space flatness. Feasible medians are lower in 11
+of 16 cells; exceptions are both f1 architectures and all three XOR architectures.
+
+| Task | Architecture | Ambient median | Feasible median |
+| --- | --- | ---: | ---: |
+| f1 | small | 1.192 | 1.310 |
+| f1 | oversized | 1.962 | 2.325 |
+| f4 | small | 10.939 | 2.693 |
+| f4 | oversized | 1.413 | 0.766 |
+| XOR | small | 1.259 | 1.345 |
+| XOR | oversized | 1.113 | 1.376 |
+| XOR | regularized | 1.163 | 1.392 |
+| Iris | small | 140.163 | 7.646 |
+| Iris | oversized | 21143.230 | 475.501 |
+| Iris | regularized | 17409.707 | 361.102 |
+| Wine | small | 3.283 | 2.127 |
+| Wine | oversized | 0.607 | 0.466 |
+| Wine | regularized | 0.646 | 0.273 |
+| Diabetes | small | 5.164 | 0.832 |
+| Diabetes | oversized | 271.960 | 52.266 |
+| Diabetes | regularized | 59.025 | 22.829 |
+
+Equal coordinate radius does not imply equal displacement after polar retraction.
+Ambient 95th-percentile displacement is 1.229; feasible cell medians range 1.004–1.229.
+The f1-small exponent tangent dimension is zero, so feasible slices vary the head
+only. Lower feasible sensitivity does not establish an unconstrained optimizer
+advantage or explain stability causally.
+
+### Matching earlier optimizer recordings
+
+All 60 baseline attempts were checked against their registered recipes, clean
+sources and immutable artifacts. Only f1/f4 small models and seeds 0–9 match:
+dataset tensors, ambient directions, preprojection initialization and order
+seeds are exact. Historical SGD numerical failures are failed W&B runs with
+complete diagnostic artifacts. Five remain in the attempted denominator:
+f1 seeds 0,3 and f4 seeds 0,1,4. AdamW, Moonlight Muon and DA-10 have no numerical
+failures in this subset. On old failed runs, a terminal null update can leave
+an earlier finite MSE in W&B's summary. The immutable artifact result is used;
+the report identifies stale summary fields.
+
+Completion by all four methods gives 8 shared f1 seeds and 7 f4 seeds. Ambient
+sensitivity medians on these identical cohorts are:
+
+| Task | Common completed seeds | SGD | AdamW | Moonlight Muon | DA-10 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| f1 | 8 | 0.998 | 5.101 | 2.716 | 1.072 |
+| f4 | 7 | 0.120 | 2.968 | 0.857 | 17.716 |
+
+This cohort conditions on SGD survival and does not score its failed seeds.
+DA-10's f1 median over all 10 available endpoints is 34.185, compared with 1.072
+on the 8 common seeds. Available-endpoint medians alone cannot establish a broad
+ranking. For f4, DA-10's common-cohort ambient sensitivity remains substantially
+larger than the other methods, including Moonlight Muon. Neither comparison
+establishes statistical significance, full-space flatness, or causation of error.
+
+Recipes differ and DA-10 projection restricts capacity. Its f1/f4 small runs
+trained/evaluated on CUDA; baselines trained on CPU and retain CPU-reference
+grids. Independent center/corner checks bound observed arithmetic differences
+but do not imply bitwise equality of every CUDA/CPU grid value. Feasible axes
+change with the center and are not the ambient directions used by baselines.
+This exploratory PUNN comparison does not declare passage of Gates A–C in the
+broader Muon study.
+
+The hourly heartbeat is paused after final readback and documentation. No
+scientific training remains active or is scheduled for restart.
