@@ -632,13 +632,85 @@ def _performance_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
     return filename
 
 
+def _terminal_surface_figure(report: dict[str, Any], artifact: Any) -> str:
+    """Show actual retained grids using the lowest shared completed seed."""
+    from pathlib import Path
+    import json
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+
+    cache = Path(__file__).resolve().parents[2] / "wandb/artifacts/punn-manifold-final-readback"
+    rows = _optimizer_rows(report, report["runs"])
+    figure, axes = plt.subplots(2, 5, figsize=(17, 8), squeeze=False)
+    figure.subplots_adjust(left=.055, right=.93, top=.88, bottom=.19, wspace=.20, hspace=.35)
+    selected_seeds = []
+    for row_index, task in enumerate(("f1", "f4")):
+        matched = {}
+        for method in METHODS:
+            matched[method] = {int(r["condition"]["seed"]): r for r in rows
+                               if r["condition"]["task"] == task and r["condition"]["method"] == method
+                               and int(r["condition"]["seed"]) < 10 and r["terminal_outcome"] == "completed"}
+        shared = set.intersection(*(set(v) for v in matched.values()))
+        if not shared:
+            raise ValueError(f"no completed seed shared by the four surface methods for {task}")
+        seed = min(shared)
+        selected_seeds.append(f"{task.upper()}: seed {seed}")
+        grids = []
+        for method in METHODS:
+            record = matched[method][seed]
+            is_da10 = method == "manifold_muon_da10"
+            folder = cache / ("runs" if is_da10 else "baselines") / record["run_id"]
+            filename = "recorded_landscapes.npz" if is_da10 else "training_landscapes.npz"
+            with np.load(folder / filename, allow_pickle=False) as payload:
+                if is_da10:
+                    for view in ("ambient", "manifold"):
+                        slice_row = _slice(record, view, "terminal")
+                        index = next(i for i, item in enumerate(record["slices"]) if item is slice_row)
+                        grids.append(payload[f"slices/{index:04d}/mse"].copy())
+                else:
+                    metadata = json.loads(str(payload["metadata_json"]))
+                    index = next(key.split("/")[1] for key, epoch in metadata.items()
+                                 if key.startswith("slices/") and key.endswith("/epoch") and epoch == 500)
+                    grids.append(payload[f"slices/{index}/sample/cpu_reference_mse"].copy())
+        positives = np.concatenate([g[np.isfinite(g) & (g > 0)] for g in grids])
+        norm = LogNorm(vmin=float(positives.min()) / 1.05, vmax=float(positives.max()) * 1.05)
+        titles = ("SGD", "AdamW", "Moonlight Muon", "DA-10 ambient", "DA-10 feasible")
+        for axis, grid, title in zip(axes[row_index], grids, titles):
+            displayed = np.ma.masked_where(~np.isfinite(grid), np.maximum(grid, norm.vmin))
+            image = axis.imshow(displayed.T, extent=(-1, 1, -1, 1), origin="lower", norm=norm,
+                                cmap="viridis", interpolation="nearest", aspect="equal")
+            axis.scatter([0], [0], marker="o", s=27, facecolors="none", edgecolors="white")
+            axis.set_title(title, fontsize=10)
+            axis.set_xlabel("Direction coordinate 1")
+            axis.set_ylabel(f"{task.upper()} / direction 2")
+            axis.text(.02, .02, f"Center MSE {grid[15,15]:.3g}\nNonfinite {int((~np.isfinite(grid)).sum())}/961",
+                      transform=axis.transAxes, color="white", fontsize=7,
+                      bbox={"facecolor":"black", "alpha":.5, "edgecolor":"none"})
+        color_axis = figure.add_axes([.945, .56 if row_index == 0 else .235, .012, .27])
+        figure.colorbar(image, cax=color_axis, label="Training MSE (log scale)")
+    figure.suptitle("Recorded terminal loss surfaces — small models, shared seeds", fontsize=15)
+    figure.text(.5, .07, "Lowest completed seed shared by all methods, chosen before inspecting surface values: "
+                + "; ".join(selected_seeds) + ".\nEach task uses one common color scale. White ring: retained center. "
+                "Nonfinite samples are masked; exact zeros use the positive color-scale floor.\n"
+                "Ambient directions/data/preprojection initialization/order are paired. Feasible axes change after tangent projection/polar retraction.\n"
+                "Recipes and capacity constraints differ; DA-10 uses CUDA and baseline grids are CPU references. "
+                "These examples are 2D slices, not a full-space flatness estimate.",
+                ha="center", va="bottom", fontsize=8)
+    filename = "da10_four_method_terminal_surfaces.png"
+    _finish_figure(figure, artifact, filename)
+    plt.close(figure)
+    return filename
+
+
 def plot_report(report: dict[str, Any], artifact: Any) -> list[str]:
     """Render four comparison figures into a W&B artifact and return their names.
 
     The report is expected to contain ``runs`` with the raw, already audited
     DA-10 run rows described by the landscape audit.  Optional optimizer
     baselines are read from ``baselines``.  This function never writes to the
-    local filesystem or communicates with W&B directly.
+    local filesystem or communicates with W&B directly. For the completed
+    scientific report it reads the already audited W&B-managed raw grid cache.
     """
     if not isinstance(report, dict) or not isinstance(report.get("runs"), list):
         raise ValueError("report must contain a runs list")
@@ -653,5 +725,7 @@ def plot_report(report: dict[str, Any], artifact: Any) -> list[str]:
         _baseline_comparison_figure(report, runs, artifact),
         _performance_figure(runs, artifact),
     ]
+    if report.get("verified_recorded_outcomes") == 480:
+        filenames.append(_terminal_surface_figure(report, artifact))
     return filenames
 
