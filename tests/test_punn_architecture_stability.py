@@ -162,6 +162,25 @@ def test_adaptive_trial_uses_recipe_and_completes_with_same_data_initialization_
     assert result["optimizer_assignment"]
 
 
+def test_model_state_observer_covers_each_epoch_without_changing_training():
+    dataset_pair = make_architecture_dataset("xor", 100004)
+    args = _adaptive_args("adamw")
+    reference = stability.run_trial(args, dataset_pair=dataset_pair)
+    states = []
+
+    def observe(model, metadata):
+        states.append((dict(metadata), [p.detach().clone() for p in model.parameters()]))
+
+    recorded = stability.run_trial(args, dataset_pair=dataset_pair, on_model_state=observe)
+    assert [(metadata["phase"], metadata["epoch"]) for metadata, _ in states] == [
+        ("initialization", 0), ("epoch", 1), ("epoch", 2), ("terminal", 2),
+    ]
+    assert states[-1][0]["terminal_outcome"] == "completed"
+    for key in reference.keys() - {"wall_seconds"}:
+        assert recorded[key] == reference[key]
+    assert all(torch.equal(before, after) for before, after in zip(states[-2][1], states[-1][1]))
+
+
 def test_adaptive_methods_and_architecture_variants_share_paired_inputs_and_initialization():
     dataset_pair = make_architecture_dataset("xor", 100004)
     results = {}

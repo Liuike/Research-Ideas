@@ -564,8 +564,14 @@ def run_trial(
     on_epoch: Callable[[dict[str, Any]], None] | None = None,
     *,
     dataset_pair: tuple[Any, dict[str, Any]] | None = None,
+    on_model_state: Callable[[ProductUnitNetwork, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Run one FP32 scalar-update condition and stop at its first nonfinite."""
+    """Run one FP32 scalar-update condition and stop at its first nonfinite.
+
+    Model-state observers must copy parameters and preserve model/RNG state.
+    They record initialization, each completed epoch, and the terminal state;
+    they do not alter the registered training or numerical-check cadence.
+    """
     started = time.perf_counter()
     seed_everything(args.seed)
     if dataset_pair is None:
@@ -612,6 +618,9 @@ def run_trial(
             model.exponents.copy_(retract_stiefel(model.exponents, args.manifold_scale))
         initial_stiefel_residual = stiefel_residual(model.exponents, args.manifold_scale)
     initialization_digest = model_digest()
+    if on_model_state is not None:
+        on_model_state(model, {"phase": "initialization", "epoch": 0,
+                               "examples_processed": 0})
     order_seed = args.seed + 1_000_003
     generator = torch.Generator(device="cpu").manual_seed(order_seed)
     if args.protocol == MANIFOLD_PROTOCOL:
@@ -835,6 +844,10 @@ def run_trial(
         train_mse = epoch_result["train_mse"]
         regularization_term = epoch_result["regularization_term"]
         objective = epoch_result["objective"]
+        if on_model_state is not None:
+            on_model_state(model, {"phase": "epoch", "epoch": epoch,
+                                   "examples_processed": examples_processed,
+                                   **epoch_result})
         if epoch == 1 or epoch % args.log_every == 0 or epoch == args.epochs:
             if on_epoch is not None:
                 on_epoch({
@@ -943,6 +956,12 @@ def run_trial(
     if failure:
         result["failed_epoch"] = failure["failed_epoch"]
         result["failure_examples_processed"] = failure["examples_processed"]
+    if on_model_state is not None:
+        on_model_state(model, {"phase": "terminal", "epoch": epochs_completed,
+                               "examples_processed": examples_processed,
+                               "terminal_outcome": result["terminal_outcome"],
+                               "failed_epoch": result["failed_epoch"],
+                               "train_mse": train_mse, "test_mse": test_mse})
     return result
 
 

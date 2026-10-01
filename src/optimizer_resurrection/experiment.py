@@ -53,6 +53,9 @@ def expand_config(
 ) -> list[list[str]]:
     """Expand committed study configs into auditable one-run commands."""
     commands: list[list[str]] = []
+    if config.get("protocol") == "punn-manifold-recorded-v1":
+        from .punn_manifold_recorded import expand_config as expand_manifold_recorded
+        return expand_manifold_recorded(config)
     if config.get("protocol") in {"punn-architecture-stability-v1", "punn-adaptive-architecture-stability-v1", "punn-manifold-architecture-stability-v1"}:
         from .punn_architecture_stability import expand_config as expand_stability
         return expand_stability(config)
@@ -448,6 +451,8 @@ def main(argv: list[str] | None = None) -> None:
     plan.add_argument("--run", action="store_true")
     plan.add_argument("--max-runs", type=int)
     plan.add_argument("--workers", type=int, default=1, help="Concurrent local subprocesses for --run")
+    plan.add_argument("--resume", action="store_true",
+                      help="Reconcile W&B before resuming a single DA-10 recorded plan")
     plan.add_argument("--plan-file", type=Path, help="Write one JSON command array per line for Oscar")
     select = sub.add_parser("select-recipes")
     select.add_argument("--output", type=Path, default=Path("configs/frozen_recipes.json"))
@@ -465,6 +470,11 @@ def main(argv: list[str] | None = None) -> None:
         for config_path in args.config:
             config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
             commands.extend(expand_config(config, recipes))
+        if args.resume:
+            if len(args.config) != 1 or config.get("protocol") != "punn-manifold-recorded-v1":
+                parser.error("--resume requires one registered DA-10 landscape config")
+            from .punn_manifold_resume import select_pending_commands
+            commands = select_pending_commands(commands, config)
         selected = commands[: args.max_runs] if args.max_runs is not None else commands
         if args.plan_file:
             args.plan_file.parent.mkdir(parents=True, exist_ok=True)
