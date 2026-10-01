@@ -80,3 +80,16 @@ from the earlier qualitative gates and do not establish headline readiness.
   never belong in this document.
 - Oscar jobs run from `/users/ezhan153/random-idea-1` and use the Brown campus
   SSH endpoint directly while this device is on secure campus Wi-Fi.
+
+
+### Recorded DA-10 hardware continuation, October 1, 2026
+
+The user stopped the GPU landscape sweep and authorized CPU completion. Retain
+116 verified recorded CUDA outcomes; exclude four interrupted f4-oversized
+attempts (seeds 26–29). The registered
+[`manifold_landscape_cpu_continuation.yaml`](../configs/product_unit/manifold_landscape_cpu_continuation.yaml)
+uses group `punn-manifold-landscape-cpu-continuation-v1` for the remaining 364
+logical cells. Both landscape views and all frozen DA-10 settings are retained.
+Strict source/device/recipe reconciliation and shared source-group mutexes prevent
+accepted cells being repeated. Device differences remain disclosed in analysis.
+See [`punn_manifold_landscape.md`](punn_manifold_landscape.md) for identities.

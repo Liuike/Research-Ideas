@@ -467,10 +467,12 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("workers must be positive")
         recipes = json.loads(args.recipes.read_text()) if args.recipes else None
         commands = []
+        continuation_requested = False
         for config_path in args.config:
             config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            continuation_requested |= "continuation" in config
             commands.extend(expand_config(config, recipes))
-        if args.resume:
+        if args.resume or continuation_requested:
             if len(args.config) != 1 or config.get("protocol") != "punn-manifold-recorded-v1":
                 parser.error("--resume requires one registered DA-10 landscape config")
             from .punn_manifold_resume import select_pending_commands

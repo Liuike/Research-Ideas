@@ -1,0 +1,101 @@
+# CPU completion of missing logical cells, retaining verified GPU outcomes.
+protocol: punn-manifold-recorded-v1
+conditions:
+- task: f1
+  architecture: small
+- task: f1
+  architecture: oversized
+- task: f4
+  architecture: small
+- task: f4
+  architecture: oversized
+- task: xor
+  architecture: small
+- task: xor
+  architecture: oversized
+- task: xor
+  architecture: regularized
+- task: iris
+  architecture: small
+- task: iris
+  architecture: oversized
+- task: iris
+  architecture: regularized
+- task: wine
+  architecture: small
+- task: wine
+  architecture: oversized
+- task: wine
+  architecture: regularized
+- task: diabetes
+  architecture: small
+- task: diabetes
+  architecture: oversized
+- task: diabetes
+  architecture: regularized
+seeds:
+- 0
+- 1
+- 2
+- 3
+- 4
+- 5
+- 6
+- 7
+- 8
+- 9
+- 10
+- 11
+- 12
+- 13
+- 14
+- 15
+- 16
+- 17
+- 18
+- 19
+- 20
+- 21
+- 22
+- 23
+- 24
+- 25
+- 26
+- 27
+- 28
+- 29
+data_seed_offset: 100000
+epochs: 500
+regularization_lambda: 0.0001
+log_every: 50
+device: cpu
+stage: exploratory
+run_group: punn-manifold-landscape-cpu-continuation-v1
+methods:
+- manifold_muon_da10
+optimizer_settings:
+  manifold_muon_da10:
+    learning_rate: 0.01
+    momentum: 0.95
+    weight_decay: 0.0
+    aux_learning_rate: 0.001
+    secondary: false
+    manifold_scale: 1.0
+    dual_learning_rate: 0.01
+    dual_iterations: 10
+landscape_device: cpu
+landscape_seed_offset: 2000000
+slice_points: 31
+slice_radius: 1.0
+landscape_batch_size: 128
+slice_every: 50
+landscape_views:
+- ambient
+- manifold
+continuation:
+  source_config: configs/product_unit/manifold_landscape_gpu.yaml
+  source_group: punn-manifold-landscape-gpu-v1
+  source_revision: c55600e4755adf687753e6dee01b63462bbc6f65
+  source_tree_digest: 853afa71ba5f0e4df8f1a78e4967d573c5f476e6ef35522c176e5639768946c6
+  source_device: cuda
+  reason: user_requested_cpu_completion

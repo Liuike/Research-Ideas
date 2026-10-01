@@ -243,3 +243,19 @@ def test_off_manifold_center_disables_only_the_feasible_view_and_keeps_json_safe
     assert result["surface_evaluated"] is False
     assert not result["candidate_evaluated_mask"].any()
 
+
+
+def test_cpu_continuation_keeps_all_cells_and_device_distinct_ids():
+    from optimizer_resurrection.punn_manifold_resume import _validate_continuation_recipes
+    source = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    cpu = yaml.safe_load((CONFIG.parent / "manifold_landscape_cpu_continuation.yaml").read_text(encoding="utf-8"))
+    gpu_args = [recorded.parse_args(command[3:]) for command in recorded.expand_config(source)]
+    cpu_args = [recorded.parse_args(command[3:]) for command in recorded.expand_config(cpu)]
+    assert len(cpu_args) == 480
+    assert {arg.device for arg in cpu_args} == {"cpu"}
+    assert {arg.landscape_device for arg in cpu_args} == {"cpu"}
+    assert {arg.condition_id for arg in gpu_args}.isdisjoint(arg.condition_id for arg in cpu_args)
+    _validate_continuation_recipes(
+        {arg.condition_id: vars(arg) for arg in gpu_args},
+        {arg.condition_id: vars(arg) for arg in cpu_args},
+    )

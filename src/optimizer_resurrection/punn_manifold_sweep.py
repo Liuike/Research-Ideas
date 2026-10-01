@@ -1,4 +1,4 @@
-"""Online W&B controller for the durable local DA-10 GPU landscape plan.
+"""Online W&B controller for the durable local DA-10 landscape plan.
 
 The experiment planner remains the only training dispatcher. Its stdout is
 streamed through this controller so W&B owns the launcher logs as well as each
@@ -8,7 +8,7 @@ scientific child's metrics and landscape artifacts.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import hashlib
 import json
 import ntpath
@@ -29,7 +29,7 @@ from .train import _git_metadata, _require_reproducible_source, _source_tree_dig
 def _exclusive_local_sweep(identity: str):
     """Hold an OS mutex across dispatch, closing the two-launch startup race."""
     if os.name != "nt":
-        raise RuntimeError("this local GPU controller requires the Windows named-mutex launcher")
+        raise RuntimeError("this local controller requires the Windows named-mutex launcher")
     import ctypes
     from ctypes import wintypes
 
@@ -57,6 +57,19 @@ def _exclusive_local_sweep(identity: str):
         if acquired:
             kernel.ReleaseMutex(handle)
         kernel.CloseHandle(handle)
+
+
+@contextmanager
+def _exclusive_registered_sweep(credentials, config):
+    """Keep the source-group mutex during a hardware continuation as well."""
+    prefix = f"{credentials['WANDB_ENTITY']}/{credentials['WANDB_PROJECT']}/"
+    groups = [config["run_group"]]
+    if "continuation" in config:
+        groups.insert(0, config["continuation"]["source_group"])
+    with ExitStack() as stack:
+        for group in groups:
+            stack.enter_context(_exclusive_local_sweep(prefix + group))
+        yield
 
 
 def _normalized_windows_path(value: str | Path | None) -> str:
@@ -147,8 +160,8 @@ def main(argv=None):
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     if config.get("protocol") != "punn-manifold-recorded-v1":
         raise ValueError("controller only supports the registered DA-10 landscape protocol")
-    if config.get("device") != "cuda" or config.get("landscape_device") != "cuda":
-        raise ValueError("the scientific controller requires CUDA training and landscapes")
+    if config.get("device") not in {"cpu", "cuda"} or config.get("landscape_device") != config["device"]:
+        raise ValueError("the scientific controller requires matching CPU or CUDA devices")
     git = _git_metadata(root)
     _require_reproducible_source(config["stage"], git)
     credentials = load_wandb_credentials(root)
@@ -159,12 +172,14 @@ def main(argv=None):
     command = [str(args.uv.resolve()), "run", "--frozen", "--no-sync", "python",
                "-m", "optimizer_resurrection.experiment", "plan", str(args.config),
                "--run", "--workers", str(args.workers)]
-    if args.resume:
+    if args.resume or "continuation" in config:
         command.append("--resume")
     import wandb
-    identity = f"{credentials['WANDB_ENTITY']}/{credentials['WANDB_PROJECT']}/{config['run_group']}"
-    with _exclusive_local_sweep(identity):
+    with _exclusive_registered_sweep(credentials, config):
         _assert_no_existing_workers(args.config, config["run_group"], args.uv)
+        if "continuation" in config:
+            source = config["continuation"]
+            _assert_no_existing_workers(root / source["source_config"], source["source_group"], args.uv)
         if not args.resume:
             existing = list(wandb.Api(timeout=90).runs(
                 f"{credentials['WANDB_ENTITY']}/{credentials['WANDB_PROJECT']}",
@@ -177,7 +192,7 @@ def main(argv=None):
 def _dispatch(args, root, config, git, credentials, expected, command, wandb):
     run = wandb.init(
         project=credentials["WANDB_PROJECT"], entity=credentials["WANDB_ENTITY"],
-        name="da10-gpu-landscape-controller", group=config["run_group"] + "-controller",
+        name=f"da10-{config['device']}-landscape-controller", group=config["run_group"] + "-controller",
         job_type="sweep-controller", mode="online", save_code=False,
         config={"protocol": "punn-manifold-landscape-controller-v1", "frozen_config": config,
                 "scientific_group": config["run_group"], "expected_runs": expected,

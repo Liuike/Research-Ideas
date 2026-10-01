@@ -115,16 +115,20 @@ if ($taskMissingCredentials.Count -gt 0) {
     throw ('Missing W&B environment variables: ' + ($taskMissingCredentials -join ', '))
 }
 
-# Fail before creating the online controller if CUDA is unavailable.
-$taskCudaCheck = @(
-    'run', '--frozen', '--no-sync', 'python', '-c',
-    'import torch; assert torch.cuda.is_available(), "CUDA is unavailable"; print(torch.cuda.get_device_name(0))'
-)
-$taskCudaDevice = & $taskUv @taskCudaCheck
-if ($LASTEXITCODE -ne 0) {
-    throw 'CUDA preflight failed; no experiment run was started.'
+# Honor the registered device; never substitute a fallback.
+$taskDevice = & $taskUv run --frozen --no-sync python -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["device"])' $taskConfig
+if ($LASTEXITCODE -ne 0 -or $taskDevice -notin @('cpu', 'cuda')) {
+    throw 'Could not validate the registered training device.'
 }
-Write-Output ('CUDA device: ' + ($taskCudaDevice -join ' '))
+if ($taskDevice -eq 'cuda') {
+    $taskCudaDevice = & $taskUv run --frozen --no-sync python -c 'import torch; assert torch.cuda.is_available(), "CUDA is unavailable"; print(torch.cuda.get_device_name(0))'
+    if ($LASTEXITCODE -ne 0) {
+        throw 'CUDA preflight failed; no experiment run was started.'
+    }
+    Write-Output ('CUDA device: ' + ($taskCudaDevice -join ' '))
+} else {
+    Write-Output 'Registered device: CPU, FP32 training and landscapes'
+}
 
 # The online controller runs the frozen experiment.plan command and publishes
 # its stream in W&B. Resume delegates strict accepted-condition reconciliation

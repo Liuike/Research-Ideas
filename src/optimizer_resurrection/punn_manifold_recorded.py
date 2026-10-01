@@ -1,4 +1,4 @@
-"""GPU DA-10 rerun with Euclidean and manifold-respecting loss slices.
+"""CPU/CUDA DA-10 rerun with Euclidean and manifold-respecting loss slices.
 
 Training is delegated to the frozen architecture-stability runner. This module
 records its exact parameter trajectory and evaluates full-training-data MSE on
@@ -103,8 +103,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("recorded DA-10 runs require the plain manifold_muon_da10 recipe")
     if training.device != recording.landscape_device:
         parser.error("training and landscape devices must match in the registered run")
-    if training.device != "cuda" and training.stage not in {"engineering-smoke", "test"}:
-        parser.error("scientific recorded DA-10 runs require CUDA for training and landscape evaluation")
     args = argparse.Namespace(**vars(training))
     for name in RECORDING_FIELDS:
         setattr(args, name, getattr(recording, name))
@@ -120,17 +118,17 @@ def expand_config(config: dict[str, Any]) -> list[list[str]]:
     """Expand the registered 16-cell by 30-seed recorded DA-10 sweep."""
     if config.get("protocol") != PROTOCOL:
         raise ValueError(f"recorded manifold config protocol must be {PROTOCOL}")
+    if "continuation" in config and not isinstance(config["continuation"], dict):
+        raise ValueError("continuation metadata must be a mapping")
     required_recording = RECORDING_FIELDS
     missing = required_recording - config.keys()
-    extra = config.keys() - stability.ADAPTIVE_CONFIG_FIELDS - required_recording
+    extra = config.keys() - stability.ADAPTIVE_CONFIG_FIELDS - required_recording - {"continuation"}
     if missing or extra:
         raise ValueError(f"invalid recorded manifold config fields: missing={missing} extra={extra}")
     if config["landscape_views"] != list(VIEWS):
         raise ValueError("the registered comparison requires landscape_views [ambient, manifold]")
     if config["device"] != config["landscape_device"]:
         raise ValueError("training and landscape devices must match")
-    if config["device"] != "cuda" and config["stage"] not in {"engineering-smoke", "test"}:
-        raise ValueError("scientific recorded DA-10 runs require CUDA")
     if config["stage"] not in {"engineering-smoke", "test"} and len(config["seeds"]) != 30:
         raise ValueError("scientific recorded DA-10 sweep requires all 30 registered seeds")
     if config["stage"] not in {"engineering-smoke", "test"} and len(config["conditions"]) != 16:
@@ -138,7 +136,7 @@ def expand_config(config: dict[str, Any]) -> list[list[str]]:
 
     training_config = {
         key: value for key, value in config.items()
-        if key not in required_recording and key != "protocol"
+        if key not in required_recording and key not in {"protocol", "continuation"}
     }
     training_config["protocol"] = TRAINING_PROTOCOL
     base_commands = stability._expand_manifold_config(training_config)

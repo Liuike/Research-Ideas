@@ -118,3 +118,21 @@ def test_process_guard_still_rejects_unrelated_or_mismatched_processes(monkeypat
 
     with pytest.raises(RuntimeError, match="existing DA-10 planner/worker processes"):
         sweep._assert_no_existing_workers(_CONFIG, _GROUP, _UV)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="local Windows controller")
+def test_continuation_holds_source_and_current_mutexes_for_its_lifetime():
+    unique = uuid.uuid4().hex
+    credentials = {"WANDB_ENTITY": "test", "WANDB_PROJECT": unique}
+    config = {"run_group": "cpu", "continuation": {"source_group": "gpu"}}
+    def contend(group):
+        with pytest.raises(RuntimeError, match="already owns"):
+            with sweep._exclusive_registered_sweep(credentials, {"run_group": group}):
+                pass
+    with sweep._exclusive_registered_sweep(credentials, config):
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(contend, "gpu").result(timeout=10)
+            pool.submit(contend, "cpu").result(timeout=10)
+    for group in ["gpu", "cpu"]:
+        with sweep._exclusive_registered_sweep(credentials, {"run_group": group}):
+            pass
