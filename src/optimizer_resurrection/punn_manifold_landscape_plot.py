@@ -472,6 +472,7 @@ def _baseline_comparison_figure(report: dict[str, Any], runs: list[dict[str, Any
             axis = axes[row_index][column_index]
             method_values = grouped.get((task, metric), {})
             method_position = {method: index for index, method in enumerate(METHODS)}
+            common_seeds = set.intersection(*(set(method_values.get(method, {})) for method in METHODS))
             by_seed: dict[str, list[tuple[float, float]]] = defaultdict(list)
             positive_values: list[float] = []
             any_zero = False
@@ -509,6 +510,13 @@ def _baseline_comparison_figure(report: dict[str, Any], runs: list[dict[str, Any
                     x = method_position[method]
                     axis.vlines(x, q25, q75, color=METHOD_COLORS[method], linewidth=2.4, zorder=4)
                     axis.hlines(median, x - 0.14, x + 0.14, color=METHOD_COLORS[method], linewidth=2.8, zorder=5)
+                if common_seeds:
+                    common_values = [method_values[method][seed][metric] for seed in common_seeds]
+                    common_median = _summary(common_values)[1]
+                    if metric == ABS_METRIC:
+                        common_median = _display_positive(common_median)
+                    axis.scatter([method_position[method]], [common_median], marker="D", s=48,
+                                 facecolors="white", edgecolors="black", linewidths=1.1, zorder=7)
                 recorded = sum(1 for row in methods_rows
                                if str(row.get("condition", {}).get("task")) == task
                                and str(row.get("condition", {}).get("seed")) in {str(i) for i in range(10)}
@@ -538,12 +546,17 @@ def _baseline_comparison_figure(report: dict[str, Any], runs: list[dict[str, Any
             axis.text(0.01, 0.98, "\n".join(count_notes), transform=axis.transAxes,
                       ha="left", va="top", fontsize=6.2,
                       bbox={"facecolor": "white", "alpha": 0.82, "edgecolor": "none", "pad": 1.4})
+            axis.text(.99, .04, f"Diamond: same {len(common_seeds)} completed seeds",
+                      transform=axis.transAxes, ha="right", va="bottom", fontsize=7,
+                      bbox={"facecolor":"white", "alpha":.82, "edgecolor":"none"})
 
     figure.suptitle("Sampled 2D slice sensitivity — matched small-architecture seeds 0–9", fontsize=14)
     figure.text(
         0.5, 0.025,
         "Dots are seed-level values; faint lines connect available values for the same seed; colored bars show "
-        "median and IQR. Earlier SGD, AdamW and Moonlight Muon records use different recipes and CPU reference "
+        "median and IQR of each method's available endpoints. Black-outlined diamonds show medians on the "
+        "same seeds completed by all four methods; this conditions on SGD survival and does not score its failures. "
+        "Earlier SGD, AdamW and Moonlight Muon records use different recipes and CPU reference "
         "landscapes; DA-10 uses a constrained projection. This comparison covers sampled 2D slices only, not "
         "full-space flatness. Missing seeds and numerical failures are counted in each panel.",
         ha="center", va="bottom", fontsize=8, wrap=True,
