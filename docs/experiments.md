@@ -93,3 +93,10 @@ logical cells. Both landscape views and all frozen DA-10 settings are retained.
 Strict source/device/recipe reconciliation and shared source-group mutexes prevent
 accepted cells being repeated. Device differences remain disclosed in analysis.
 See [`punn_manifold_landscape.md`](punn_manifold_landscape.md) for identities.
+
+
+CPU continuation launched from clean revision `59b53d1`, eight local workers,
+controller [`qm8ich4f`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/qm8ich4f).
+The exact planner reconciliation accepted116 CUDA source outcomes and selected
+364 CPU jobs. Initial CPU provenance checks passed; first four XOR-small cells
+finished all500 epochs with uploaded recordings. Hourly monitoring continues.

@@ -152,3 +152,51 @@ verified all 16 engineering outcomes, 64 states and 128 slices. Maximum relative
 scalar-reference difference was 1.55e-6 and maximum feasible-grid Stiefel residual
 was 9.72e-7. The repository suite passed, followed by focused continuation,
 geometry and Windows mutex tests after final guard changes.
+
+
+The CPU continuation started at approximately 14:19 UTC (10:19 EDT) on October 1,
+2026, with eight one-thread workers. Controller
+[`qm8ich4f`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/qm8ich4f)
+is running; its W&B-managed output is
+`wandb/wandb/run-20261001_101944-qm8ich4f/files/output.log`.
+
+- Clean scientific checkout: `.cache/da10-landscape-cpu-59b53d1`.
+- Revision: `59b53d1ac33b7d8edc836a55f530889296f96746`.
+- Raw source SHA256: `116c85bc9c09d2cf9e5e02d07b7c657948af206797dafa986fc475cd87a26e3f` (135 files).
+- Hidden launcher PID28996, actual controller Python63088 (redirector21904),
+  planner UV65592 and Python37276 (redirector10332).
+- First CPU f4-oversized runs: `cgwx2mq6` (seed26), `1xg4eehb` (seed27),
+  `t2l5i0ql` (seed28), `iyymfvfm` (seed29).
+- First CPU XOR-small seeds0–3: `v2smnpui`, `irjnk9zt`, `fyrh064q`, `68fenqi2`.
+  All four finished 500 epochs and uploaded recordings. Initial eight CPU run
+  configs and clean-source provenance were verified against the frozen plan.
+
+The first hidden CPU launcher stopped during its device preflight before any
+controller or scientific run was created: Windows PowerShell removed internal
+string quotes. The quoting fix was physically verified before this launch.
+The final launcher also loads allowlisted root credentials before online dry-run
+reconciliation. The scientific checkout remains unchanged; these startup
+engineering failures contributed no scientific outcomes.
+
+The existing hourly automation ID `check-da-10-gpu-landscapes-hourly` now has
+name “Check DA-10 CPU landscapes hourly” and the exact CPU identities above.
+It verifies combined logical-cell coverage and artifact completeness, preserves
+the 116 CUDA outcomes, and never restarts CUDA science. Final landscape analysis
+and graph updates follow all 480 recorded outcomes, with the device split stated.
+
+
+Immutable GPU-to-CPU transfer audit:
+[`t6eu6glr`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/t6eu6glr),
+artifact `punn-da10-hardware-transfer-t6eu6glr:v0`. It retains all 116 source
+run/artifact references and maps their GPU condition IDs to the distinct CPU
+condition IDs for the same logical cells. It records four excluded interruptions,
+364 selected CPU jobs, the clean CPU revision/digest and the preflight audit.
+No training run was added by this audit.
+
+
+Post-launch snapshot: W&B reported79 finished CPU records with recording-complete
+markers and7 running records during the query (dispatch/upload transitions may
+change the instantaneous worker count). The first four full CPU immutable
+artifacts were read back and verified:502 states and13 ambient plus13 manifold
+31x31 slices each. The interrupted f4 seeds had reached epoch400. This snapshot
+is progress only; all remaining artifacts still require final verification.
