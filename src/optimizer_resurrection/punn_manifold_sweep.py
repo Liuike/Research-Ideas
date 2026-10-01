@@ -11,8 +11,10 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import ntpath
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -57,8 +59,39 @@ def _exclusive_local_sweep(identity: str):
         kernel.CloseHandle(handle)
 
 
-def _assert_no_existing_workers(config_path: Path, group: str):
+def _normalized_windows_path(value: str | Path | None) -> str:
+    return ntpath.normcase(ntpath.normpath(str(value or ""))).rstrip("\\")
+
+
+def _is_same_invocation_wrapper(
+    process: dict[str, object], *, parent_pid: int, wrapper_path: Path,
+    expected_arguments: str,
+) -> bool:
+    """Match only this process's immediate UV venv-Python redirector."""
+    try:
+        if int(process.get("ProcessId", -1)) != parent_pid:
+            return False
+    except (TypeError, ValueError):
+        return False
+    if _normalized_windows_path(process.get("ExecutablePath")) != _normalized_windows_path(wrapper_path):
+        return False
+    command_line = process.get("CommandLine")
+    if not isinstance(command_line, str):
+        return False
+    match = re.fullmatch(r'\s*(?:"([^"]+)"|(\S+))(?:\s+(.*))?\s*', command_line)
+    if match is None:
+        return False
+    return (match.group(3) or "") == expected_arguments
+
+
+def _assert_no_existing_workers(config_path: Path, group: str, uv_path: Path):
     """Fail closed if an orphan planner/worker remains after a controller exit."""
+    original_argv = getattr(sys, "orig_argv", None)
+    expected_arguments = (
+        subprocess.list2cmdline(original_argv[1:])
+        if isinstance(original_argv, list) and len(original_argv) > 1
+        else ""
+    )
     env = dict(os.environ)
     env.update(DA10_CHECK_PID=str(os.getpid()), DA10_CHECK_GROUP=group,
                DA10_CHECK_CONFIG=config_path.name)
@@ -74,7 +107,7 @@ $taskMatches = @(Get-CimInstance Win32_Process | Where-Object {
         ($_.CommandLine.Contains('optimizer_resurrection.punn_manifold_sweep') -and
          $_.CommandLine.Contains($env:DA10_CHECK_CONFIG))
     )
-} | Select-Object ProcessId, ParentProcessId)
+} | Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine)
 ConvertTo-Json -InputObject $taskMatches -Compress
 """
     result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -82,6 +115,21 @@ ConvertTo-Json -InputObject $taskMatches -Compress
     if result.returncode:
         raise RuntimeError("cannot verify local DA-10 process state; inspect it before dispatch")
     matches = json.loads(result.stdout.strip())
+    if isinstance(matches, dict):
+        matches = [matches]
+    # UV's Windows Python redirector can remain as the immediate parent of
+    # this controller. Exempt it only when both its executable and complete
+    # argument tail prove that it launched this exact invocation.
+    parent_pid = os.getppid()
+    wrapper_path = Path(uv_path).with_name("python.exe")
+    matches = [
+        process for process in matches
+        if int(process.get("ProcessId", -1)) != os.getpid()
+        and not _is_same_invocation_wrapper(
+            process, parent_pid=parent_pid, wrapper_path=wrapper_path,
+            expected_arguments=expected_arguments,
+        )
+    ]
     if matches:
         raise RuntimeError(f"existing DA-10 planner/worker processes prevent dispatch: {matches}")
 
@@ -116,7 +164,7 @@ def main(argv=None):
     import wandb
     identity = f"{credentials['WANDB_ENTITY']}/{credentials['WANDB_PROJECT']}/{config['run_group']}"
     with _exclusive_local_sweep(identity):
-        _assert_no_existing_workers(args.config, config["run_group"])
+        _assert_no_existing_workers(args.config, config["run_group"], args.uv)
         if not args.resume:
             existing = list(wandb.Api(timeout=90).runs(
                 f"{credentials['WANDB_ENTITY']}/{credentials['WANDB_PROJECT']}",
