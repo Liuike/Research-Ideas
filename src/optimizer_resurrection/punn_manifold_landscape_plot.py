@@ -239,8 +239,8 @@ def _terminal_distribution_figure(report: dict[str, Any], rows: list[dict[str, A
             annotation = (
                 f"A {len(values_by_view['ambient'])}/{EXPECTED_SEEDS}; "
                 f"M {len(values_by_view['manifold'])}/{EXPECTED_SEEDS}\n"
-                f"unavailable {missing_ambient}/{missing_manifold}; "
-                f"NF {nonfinite_by_view['ambient']}/{nonfinite_by_view['manifold']}; "
+                f"missing {missing_ambient}/{missing_manifold}; "
+                f"NF {nonfinite_by_view['ambient']}/{nonfinite_by_view['manifold']}\n"
                 f"zero→floor {zero_by_view['ambient']}/{zero_by_view['manifold']}"
             )
             axis.text(center, 0.98, annotation, transform=axis.get_xaxis_transform(),
@@ -290,6 +290,8 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
     for axis, task in zip(axes.flat, TASKS):
         terminal_notes: list[str] = []
         positive_values: list[float] = []
+        plotted_bounds: list[float] = []
+        snapshot_counts: list[int] = []
         any_zero = False
         for architecture in CELL_ARCHITECTURES[task]:
             cell_rows = by_cell.get((task, architecture), [])
@@ -327,10 +329,13 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
                         nonfinite_terminal += 1
 
                 available_epochs = sorted(grouped)
+                snapshot_counts.extend(len(grouped.get(epoch, [])) for epoch in epochs)
+                snapshot_counts.append(len(terminal_values))
                 if available_epochs:
                     medians = [_summary(grouped[epoch])[1] for epoch in available_epochs]
                     q25 = [_summary(grouped[epoch])[0] for epoch in available_epochs]
                     q75 = [_summary(grouped[epoch])[2] for epoch in available_epochs]
+                    plotted_bounds.extend(medians + q25 + q75)
                     color = ARCH_COLORS[architecture]
                     linestyle = "-" if view == "ambient" else "--"
                     axis.plot(available_epochs, medians, color=color, linestyle=linestyle,
@@ -339,6 +344,7 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
                 summary = _summary(terminal_values)
                 if summary:
                     terminal_median = _display_positive(summary[1])
+                    plotted_bounds.append(terminal_median)
                     axis.scatter(
                         [500], [terminal_median], marker="s", s=42, facecolors="none",
                         edgecolors=ARCH_COLORS[architecture], linewidths=1.4, zorder=6,
@@ -358,8 +364,13 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
         axis.set_xticks((0, 100, 200, 300, 400, 500))
         axis.set_yscale("log")
         axis.grid(axis="y", which="both", color="#dddddd", linewidth=0.55)
-        _set_log_limits(axis, positive_values, has_zero=any_zero)
-        note = "Terminal counts per architecture/view (epoch500 / terminal; NF / zero counts):\n" + "\n".join(terminal_notes)
+        _set_log_limits(axis, plotted_bounds, has_zero=any_zero)
+        task_rows = [r for r in rows if _condition(r)["task"] == task]
+        nf_slices = sum(int(s.get("mse_nonfinite_count", 0)) > 0 for r in task_rows for s in r["slices"])
+        if snapshot_counts and all(n == EXPECTED_SEEDS for n in snapshot_counts) and not any_zero and not nf_slices:
+            note = "Every architecture/view/checkpoint: 30/30\nNonfinite grids: 0; zero sensitivities: 0"
+        else:
+            note = "Terminal counts (epoch500 / terminal; NF / zeros):\n" + "\n".join(terminal_notes)
         axis.text(0.01, 0.015, note, transform=axis.transAxes, ha="left", va="bottom",
                   fontsize=5.1, color="#333333", bbox={"facecolor": "white", "alpha": 0.82, "edgecolor": "none", "pad": 1.5})
 
@@ -382,6 +393,7 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
         "its count and the epoch-500 count are printed per architecture/view. Runs with missing or "
         "nonfinite sensitivity values are excluded from that point's summary and remain visible in n/30 counts; "
         "runs with nonfinite grid candidates and exact zeros clamped to 1e-15 are counted separately. "
+        "Axes cover the plotted median/IQR; individual terminal tails are shown in the companion distribution graph. "
         "This is a sampled 2D view, not a full-space flatness estimate.",
         ha="center", va="bottom", fontsize=8, wrap=True,
     )
@@ -600,8 +612,8 @@ def _performance_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
             train_valid = len(values_by_metric["train_mse"])
             test_valid = len(values_by_metric["test_mse"])
             axis.text(center, 0.98,
-                      f"Train {train_valid}/{EXPECTED_SEEDS}; test {test_valid}/{EXPECTED_SEEDS}; "
-                      f"unavailable {EXPECTED_SEEDS-train_valid}/{EXPECTED_SEEDS-test_valid}; "
+                      f"Train {train_valid}/{EXPECTED_SEEDS}; test {test_valid}/{EXPECTED_SEEDS}\n"
+                      f"unavailable {EXPECTED_SEEDS-train_valid}/{EXPECTED_SEEDS-test_valid}\n"
                       f"zero→floor {zero_counts['train_mse']}/{zero_counts['test_mse']}",
                       transform=axis.get_xaxis_transform(), ha="center", va="top", fontsize=6.6)
 
