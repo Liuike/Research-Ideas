@@ -82,5 +82,38 @@ masks, selected corner losses, and feasible-grid Stiefel residuals.
   3.33e-6. Centers were within 1.03e-6 relative difference against CPU references.
 
 These audits are engineering checks, not optimizer-performance results.
-Scientific launch status: recording preflight passed; preparing the clean
-isolated scientific checkout. No completed landscape result is claimed here.
+## Active scientific sweep
+
+Started October 1, 2026 at 04:44 UTC (00:44 EDT), using four concurrent local
+CUDA workers. The exact frozen planner expanded 480 distinct conditions.
+Startup verification checked the first four online scientific runs against
+every resolved config field and the same clean revision/source bytes;
+`nvidia-smi` observed 91% GPU utilization and 3,458 MiB of 16,380 MiB allocated.
+There were zero completed scientific outcomes at this startup check.
+
+- [Online controller `y911ni46`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/y911ni46)
+  is running. Query it directly if filtered W&B indexing is delayed.
+- Scientific revision: `c55600e4755adf687753e6dee01b63462bbc6f65`.
+- Clean checkout: `.cache/da10-landscape-gpu-c55600e` within the original repository.
+- Raw source SHA256: `853afa71ba5f0e4df8f1a78e4967d573c5f476e6ef35522c176e5639768946c6`.
+- Initial launcher PID: 48344; controller Python PID: 16840; owned planner UV
+  PID: 39468; planner Python PID: 64864. Windows Python redirectors remain
+  alongside the real processes and must not be counted as duplicate runs.
+- Initial scientific runs: `h0zggvfh` (seed 0), `v7phtojo` (seed 1), `7n0bes34`
+  (seed 2), `zp1dzin3` (seed 3), all f1-small, CUDA training and diagnostics.
+- W&B-managed controller log:
+  `wandb/wandb/run-20261001_004400-y911ni46/files/output.log`.
+
+The hourly heartbeat has been updated with these exact identities. It validates
+recorded outcomes, tracks progress/failures, and performs the landscape comparison
+after all registered outcomes and artifacts are complete. A successful 500-epoch
+run records 502 parameter states and 13 slices per view (26 total); terminal and
+epoch-500 slices are retained separately. No completed landscape result is claimed
+at launch.
+
+The startup guard was corrected and independently reviewed before this launch:
+it exempts only the verified immediate Python redirector of the same controller
+invocation. Seven focused guard/mutex tests, seven resume tests, and a physical
+Windows redirector probe passed. Other controller/planner/worker processes still
+block a second launch. The earlier startup attempt stopped before creating any
+scientific W&B run.
