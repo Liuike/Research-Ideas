@@ -229,3 +229,19 @@ this failed attempt and will use the exact clean source/config with strict
 `-DryRun -Resume` reconciliation, then `-Resume`, once the current dispatcher
 has exited and its workers are gone. No concurrent retry or recipe change is
 permitted. The four interrupted GPU attempts remain excluded as documented.
+
+
+### Hourly check, October 1 at 16:33 UTC
+
+440 unique recorded outcomes passed strict online recipe/provenance checks and
+immutable artifact manifest/layout verification:116 CUDA plus324 CPU. All
+verified successful recordings retain502 states and13 ambient plus13 manifold
+31x31 slices, with MSE/objective grids, masks and geometry diagnostics. No
+numerical failures or additional infrastructure failures were observed. The
+known iris-oversized seed21 W&B timeout remains excluded and awaits safe retry
+after the current dispatcher exits; the four GPU interruptions remain excluded.
+
+The controller remains running. A refreshed snapshot showed eight CPU workers
+on diabetes-oversized seeds24-29 and diabetes-regularized seeds0-1, ranging from
+initialization to epoch400. No duplicate controller or concurrent retry was
+started. The frozen source and recipe are unchanged; hourly monitoring continues.
