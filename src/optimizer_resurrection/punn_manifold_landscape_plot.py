@@ -67,6 +67,19 @@ def _display_positive(value: float) -> float:
     return max(float(value), POSITIVE_FLOOR)
 
 
+def _set_log_limits(axis: Any, values: Iterable[float], *, has_zero: bool = False) -> None:
+    """Tighten a positive log axis, reserving the fixed floor only for zeros."""
+    values = [float(value) for value in values if math.isfinite(float(value)) and float(value) > 0]
+    if not values:
+        axis.set_ylim(POSITIVE_FLOOR / 2, 1.0)
+        return
+    low = POSITIVE_FLOOR / 2 if has_zero else min(values) / 1.8
+    high = max(values) * 1.8
+    if high <= low:
+        high = low * 2
+    axis.set_ylim(bottom=low, top=high)
+
+
 def _quantile(values: Iterable[float], fraction: float) -> float | None:
     ordered = sorted(values)
     if not ordered:
@@ -171,6 +184,7 @@ def _terminal_distribution_figure(report: dict[str, Any], rows: list[dict[str, A
         ticks: list[float] = []
         labels: list[str] = []
         ymax_values: list[float] = []
+        any_zero = False
         for arch_index, architecture in enumerate(architectures):
             cell_rows = by_cell.get((task, architecture), [])
             center = arch_index * 3.0
@@ -180,6 +194,7 @@ def _terminal_distribution_figure(report: dict[str, Any], rows: list[dict[str, A
             labels.append(ARCH_LABELS[architecture])
             values_by_view: dict[str, dict[str, float]] = {"ambient": {}, "manifold": {}}
             nonfinite_by_view = {"ambient": 0, "manifold": 0}
+            zero_by_view = {"ambient": 0, "manifold": 0}
 
             for row in cell_rows:
                 seed = _condition(row)["seed"]
@@ -189,6 +204,9 @@ def _terminal_distribution_figure(report: dict[str, Any], rows: list[dict[str, A
                         nonfinite_by_view[view] += 1
                     value = _finite_number(record.get(ABS_METRIC)) if record else None
                     if value is not None and value >= 0:
+                        if value == 0:
+                            zero_by_view[view] += 1
+                            any_zero = True
                         values_by_view[view][str(seed)] = _display_positive(value)
 
             seeds = sorted(set(values_by_view["ambient"]) | set(values_by_view["manifold"]))
@@ -222,7 +240,8 @@ def _terminal_distribution_figure(report: dict[str, Any], rows: list[dict[str, A
                 f"A {len(values_by_view['ambient'])}/{EXPECTED_SEEDS}; "
                 f"M {len(values_by_view['manifold'])}/{EXPECTED_SEEDS}\n"
                 f"unavailable {missing_ambient}/{missing_manifold}; "
-                f"NF slices {nonfinite_by_view['ambient']}/{nonfinite_by_view['manifold']}"
+                f"NF {nonfinite_by_view['ambient']}/{nonfinite_by_view['manifold']}; "
+                f"zero→floor {zero_by_view['ambient']}/{zero_by_view['manifold']}"
             )
             axis.text(center, 0.98, annotation, transform=axis.get_xaxis_transform(),
                       ha="center", va="top", fontsize=6.3, color="#333333")
@@ -233,10 +252,7 @@ def _terminal_distribution_figure(report: dict[str, Any], rows: list[dict[str, A
         axis.set_yscale("log")
         axis.set_ylabel(SENSITIVITY_LABEL)
         axis.grid(axis="y", which="both", color="#dddddd", linewidth=0.55)
-        if ymax_values:
-            axis.set_ylim(bottom=POSITIVE_FLOOR / 2, top=max(ymax_values) * 18)
-        else:
-            axis.set_ylim(POSITIVE_FLOOR / 2, 1.0)
+        _set_log_limits(axis, ymax_values, has_zero=any_zero)
 
     legend = [
         Line2D([0], [0], marker="o", linestyle="none", color=VIEW_COLORS["ambient"], label="Ambient; dots are seeds"),
@@ -250,7 +266,8 @@ def _terminal_distribution_figure(report: dict[str, Any], rows: list[dict[str, A
         0.5, 0.025,
         f"{_device_note(rows)}. DA-10 projects updates onto its constrained product-unit manifold; "
         "f1-small is below capacity. These sampled 2D slices do not estimate full-space flatness. "
-        "Unavailable counts include missing or nonfinite terminal values; NF counts are runs with nonfinite grid points.",
+        "Unavailable counts include missing or nonfinite terminal values; NF counts are runs with nonfinite grid points. "
+        "Exact zero sensitivities are clamped to 1e-15 on log axes and counted in each cell.",
         ha="center", va="bottom", fontsize=8, wrap=True,
     )
     filename = "da10_terminal_landscape_sensitivity.png"
@@ -273,6 +290,7 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
     for axis, task in zip(axes.flat, TASKS):
         terminal_notes: list[str] = []
         positive_values: list[float] = []
+        any_zero = False
         for architecture in CELL_ARCHITECTURES[task]:
             cell_rows = by_cell.get((task, architecture), [])
             total = EXPECTED_SEEDS
@@ -281,12 +299,17 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
                 terminal_values: list[float] = []
                 nonfinite_epoch500 = 0
                 nonfinite_terminal = 0
+                zero_epoch500 = 0
+                zero_terminal = 0
                 for row in cell_rows:
                     for epoch in epochs:
                         phase = "initialization" if epoch == 0 else "epoch"
                         record = _slice(row, view, phase, epoch)
                         value = _finite_number(record.get(ABS_METRIC)) if record else None
                         if value is not None and value >= 0:
+                            if epoch == 500 and value == 0:
+                                zero_epoch500 += 1
+                                any_zero = True
                             grouped[epoch].append(_display_positive(value))
                             positive_values.append(_display_positive(value))
                         if (epoch == 500 and record
@@ -295,6 +318,9 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
                     terminal = _slice(row, view, "terminal")
                     value = _finite_number(terminal.get(ABS_METRIC)) if terminal else None
                     if value is not None and value >= 0:
+                        if value == 0:
+                            zero_terminal += 1
+                            any_zero = True
                         terminal_values.append(_display_positive(value))
                         positive_values.append(_display_positive(value))
                     if terminal and int(terminal.get("mse_nonfinite_count") or 0) > 0:
@@ -321,7 +347,8 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
                     f"{ARCH_LABELS[architecture]} {view}: "
                     f"epoch500 {len(grouped.get(500, []))}/{total}, "
                     f"terminal {len(terminal_values)}/{total}; "
-                    f"NF-grid runs {nonfinite_epoch500}/{nonfinite_terminal}"
+                    f"NF {nonfinite_epoch500}/{nonfinite_terminal}; "
+                    f"zero→floor {zero_epoch500}/{zero_terminal}"
                 )
 
         axis.set_title(task.upper())
@@ -331,13 +358,10 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
         axis.set_xticks((0, 100, 200, 300, 400, 500))
         axis.set_yscale("log")
         axis.grid(axis="y", which="both", color="#dddddd", linewidth=0.55)
-        if positive_values:
-            axis.set_ylim(bottom=POSITIVE_FLOOR / 2, top=max(positive_values) * 8)
-        else:
-            axis.set_ylim(POSITIVE_FLOOR / 2, 1.0)
-        note = "Terminal n/30 (epoch / terminal): " + "; ".join(terminal_notes)
+        _set_log_limits(axis, positive_values, has_zero=any_zero)
+        note = "Terminal counts per architecture/view (epoch500 / terminal; NF / zero counts):\n" + "\n".join(terminal_notes)
         axis.text(0.01, 0.015, note, transform=axis.transAxes, ha="left", va="bottom",
-                  fontsize=5.9, color="#333333", bbox={"facecolor": "white", "alpha": 0.78, "edgecolor": "none", "pad": 1.5})
+                  fontsize=5.1, color="#333333", bbox={"facecolor": "white", "alpha": 0.82, "edgecolor": "none", "pad": 1.5})
 
     legend: list[Any] = []
     for architecture in ("small", "oversized", "regularized"):
@@ -357,7 +381,7 @@ def _temporal_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
         "epoch 1 and every 50 epochs. The outlined square is the separately recorded terminal snapshot; "
         "its count and the epoch-500 count are printed per architecture/view. Runs with missing or "
         "nonfinite sensitivity values are excluded from that point's summary and remain visible in n/30 counts; "
-        "runs with nonfinite grid candidates are counted separately. "
+        "runs with nonfinite grid candidates and exact zeros clamped to 1e-15 are counted separately. "
         "This is a sampled 2D view, not a full-space flatness estimate.",
         ha="center", va="bottom", fontsize=8, wrap=True,
     )
@@ -404,6 +428,7 @@ def _baseline_comparison_figure(report: dict[str, Any], runs: list[dict[str, Any
     )
     seen: set[tuple[str, str, str, str]] = set()
     failures: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    zero_counts: dict[tuple[str, str, str], int] = defaultdict(int)
     for row in methods_rows:
         condition = _condition(row)
         task = str(condition["task"])
@@ -425,6 +450,8 @@ def _baseline_comparison_figure(report: dict[str, Any], runs: list[dict[str, Any
             value = _finite_number(record.get(metric)) if record else None
             if value is not None and (metric != ABS_METRIC or value >= 0):
                 grouped[(task, metric)][method][seed][metric] = value
+                if metric == ABS_METRIC and value == 0:
+                    zero_counts[(task, metric, method)] += 1
 
     figure, axes = plt.subplots(2, 2, figsize=(15, 9), squeeze=False)
     figure.subplots_adjust(left=0.08, right=0.99, top=0.88, bottom=0.19, hspace=0.38, wspace=0.24)
@@ -434,6 +461,8 @@ def _baseline_comparison_figure(report: dict[str, Any], runs: list[dict[str, Any
             method_values = grouped.get((task, metric), {})
             method_position = {method: index for index, method in enumerate(METHODS)}
             by_seed: dict[str, list[tuple[float, float]]] = defaultdict(list)
+            positive_values: list[float] = []
+            any_zero = False
             for method in METHODS:
                 seed_values = method_values.get(method, {})
                 for seed, metrics in seed_values.items():
@@ -441,6 +470,9 @@ def _baseline_comparison_figure(report: dict[str, Any], runs: list[dict[str, Any
                     if value is None:
                         continue
                     shown = _display_positive(value) if metric == ABS_METRIC else value
+                    if metric == ABS_METRIC:
+                        positive_values.append(shown)
+                        any_zero = any_zero or value == 0
                     x = method_position[method] + _jitter(seed) * 0.45
                     by_seed[seed].append((x, shown))
             for seed, points in by_seed.items():
@@ -477,13 +509,15 @@ def _baseline_comparison_figure(report: dict[str, Any], runs: list[dict[str, Any
                     f"{METHOD_LABELS[method]} {available}/10 finite; "
                     f"{max(0, EXPECTED_BASELINE_SEEDS - recorded)} absent, "
                     f"{numerical} numerical failures"
+                    + (f", {zero_counts[(task, metric, method)]} zero→floor"
+                       if metric == ABS_METRIC else "")
                 )
 
             axis.set_xticks(range(len(METHODS)), [METHOD_LABELS[item] for item in METHODS], rotation=12, ha="right")
             axis.set_title(f"{task.upper()} — {'absolute' if metric == ABS_METRIC else 'signed'} terminal delta")
             if metric == ABS_METRIC:
                 axis.set_yscale("log")
-                axis.set_ylim(bottom=POSITIVE_FLOOR / 2)
+                _set_log_limits(axis, positive_values, has_zero=any_zero)
                 axis.set_ylabel(SENSITIVITY_LABEL)
             else:
                 axis.axhline(0, color="#555555", linewidth=0.8)
@@ -523,17 +557,22 @@ def _performance_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
         ticks: list[float] = []
         labels: list[str] = []
         ymax_values: list[float] = []
+        axis_has_zero = False
         for arch_index, architecture in enumerate(CELL_ARCHITECTURES[task]):
             cell_rows = by_cell.get((task, architecture), [])
             center = arch_index * 3.0
             ticks.append(center)
             labels.append(ARCH_LABELS[architecture])
             values_by_metric: dict[str, dict[str, float]] = {metric: {} for metric, _, _ in metrics}
+            zero_counts = {metric: 0 for metric, _, _ in metrics}
             for row in cell_rows:
                 seed = str(_condition(row)["seed"])
                 for metric, _, _ in metrics:
                     value = _finite_number(row.get(metric))
                     if value is not None and value >= 0:
+                        if value == 0:
+                            zero_counts[metric] += 1
+                            axis_has_zero = True
                         values_by_metric[metric][seed] = _display_positive(value)
             for seed in sorted(set(values_by_metric["train_mse"]) | set(values_by_metric["test_mse"])):
                 offset = _jitter(seed)
@@ -562,7 +601,8 @@ def _performance_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
             test_valid = len(values_by_metric["test_mse"])
             axis.text(center, 0.98,
                       f"Train {train_valid}/{EXPECTED_SEEDS}; test {test_valid}/{EXPECTED_SEEDS}; "
-                      f"unavailable {EXPECTED_SEEDS-train_valid}/{EXPECTED_SEEDS-test_valid}",
+                      f"unavailable {EXPECTED_SEEDS-train_valid}/{EXPECTED_SEEDS-test_valid}; "
+                      f"zero→floor {zero_counts['train_mse']}/{zero_counts['test_mse']}",
                       transform=axis.get_xaxis_transform(), ha="center", va="top", fontsize=6.6)
 
         axis.set_title(task.upper())
@@ -571,10 +611,7 @@ def _performance_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
         axis.set_yscale("log")
         axis.set_ylabel("Prediction MSE")
         axis.grid(axis="y", which="both", color="#dddddd", linewidth=0.55)
-        if ymax_values:
-            axis.set_ylim(bottom=POSITIVE_FLOOR / 2, top=max(ymax_values) * 18)
-        else:
-            axis.set_ylim(POSITIVE_FLOOR / 2, 1.0)
+        _set_log_limits(axis, ymax_values, has_zero=axis_has_zero)
 
     legend = [
         Line2D([0], [0], marker="o", linestyle="none", color=color, label=f"{label}; dots are seeds")
@@ -585,7 +622,8 @@ def _performance_figure(rows: list[dict[str, Any]], artifact: Any) -> str:
     figure.text(
         0.5, 0.025,
         f"{_device_note(rows)}. Metrics are taken from the recorded terminal training and held-out evaluations. "
-        "Unavailable values remain counted in the annotations.",
+        "Unavailable values remain counted in the annotations. Exact zeros are clamped to 1e-15 on log axes "
+        "and their counts are printed per task/architecture.",
         ha="center", va="bottom", fontsize=8, wrap=True,
     )
     filename = "da10_terminal_prediction_mse.png"

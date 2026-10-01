@@ -192,7 +192,11 @@ def baseline_rows(api, project, root, cache, da10_rows):
         sources = set()
         for record in selected:
             c = record.config
-            if record.state != "finished" or c["condition_id"] not in expected or c["condition_id"] in seen:
+            result = dict(record.summary)
+            accepted_state = record.state == "finished" or (
+                record.state == "failed" and result.get("terminal_outcome") == "numerical_failure")
+            if (not accepted_state or result.get("landscape_status") != "completed"
+                    or c["condition_id"] not in expected or c["condition_id"] in seen):
                 raise ValueError(f"incomplete/duplicate baseline: {record.run_id}")
             seen.add(c["condition_id"])
             for key, value in expected[c["condition_id"]].items():
@@ -204,7 +208,6 @@ def baseline_rows(api, project, root, cache, da10_rows):
             sources.add((provenance["git"]["revision"], provenance["source_tree"]["digest"]))
             # The original recorded-reference runner stores its terminal
             # result flat; the newer architecture runner uses a nested copy.
-            result = dict(record.summary)
             artifact = api.artifact(result["landscape_artifact"], type="loss-landscape")
             folder = cache / "baselines" / record.run_id
             saved_provenance = json.loads(download_entry(artifact, "provenance.json", folder).read_text())
@@ -218,6 +221,17 @@ def baseline_rows(api, project, root, cache, da10_rows):
                 raise ValueError(f"baseline artifact provenance mismatch: {record.run_id}")
             if saved_provenance["config"] != {k: c[k] for k in saved_provenance["config"]}:
                 raise ValueError(f"baseline artifact resolved config mismatch: {record.run_id}")
+            saved_result = {k: v for k, v in saved_provenance["result"].items() if k != "wall_seconds"}
+            # On old numerical failures W&B retains a preceding logged metric
+            # when the terminal summary update supplies None. The immutable
+            # artifact result is authoritative for these missing endpoints.
+            stale_metrics = [k for k in ("train_mse", "test_mse")
+                             if saved_result.get("terminal_outcome") == "numerical_failure"
+                             and saved_result.get(k) is None and result.get(k) is not None]
+            comparable = {k: v for k, v in saved_result.items() if k not in stale_metrics}
+            if not same_snapshot(comparable, {k: result.get(k) for k in comparable}):
+                raise ValueError(f"baseline immutable terminal result mismatch: {record.run_id}")
+            result.update(saved_result)
             dataset = read_npz(download_entry(artifact, "dataset.npz", folder))
             payload = read_npz(download_entry(artifact, "training_landscapes.npz", folder))
             m = metadata(payload)
@@ -267,6 +281,7 @@ def baseline_rows(api, project, root, cache, da10_rows):
                          "terminal_outcome": result["terminal_outcome"],
                          "train_mse": finite_number(result.get("train_mse")), "test_mse": finite_number(result.get("test_mse")),
                          "slices": slices, "pairing": {"dataset_exact": True, "ambient_directions_exact": True, "preprojection_initialization_exact": True, "order_seed_exact": True},
+                         "summary_stale_metric_keys": stale_metrics,
                          "source_revision": provenance["git"]["revision"], "source_digest": provenance["source_tree"]["digest"]})
         if len(sources) != 1:
             raise ValueError(f"unregistered mixed baseline sources: {selected_method}")
