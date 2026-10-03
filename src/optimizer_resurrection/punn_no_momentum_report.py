@@ -783,7 +783,7 @@ def _landscape_figure(report: Mapping[str, Any], artifact: Any) -> str:
                     axis.vlines(x, q25, q75, color=colors[method], linewidth=2.2, zorder=4)
                     axis.hlines(median, x - .09, x + .09, color=colors[method], linewidth=2.6, zorder=5)
         axis.set_yscale("log")
-        axis.set_ylabel("95th percentile |grid MSE âˆ’ center|")
+        axis.set_ylabel("95th percentile |grid MSE - center|")
         axis.set_title("Ambient slice" if view == "ambient" else "Feasible manifold slice")
         axis.grid(axis="y", which="both", color="#dddddd", linewidth=.6)
     axes[-1].set_xticks(range(len(report["cells"])),
@@ -791,10 +791,10 @@ def _landscape_figure(report: Mapping[str, Any], artifact: Any) -> str:
                         fontsize=8)
     figure.suptitle("Recorded terminal loss-landscape sensitivity by task and architecture", fontsize=14)
     figure.text(.5, .015,
-                "Dots are per-seed terminal 31Ã—31 slices; colored marks show median and IQR. "
+                "Dots are per-seed terminal 31x31 slices; colored marks show median and IQR. "
                 "Gray lines pair the same initialization and data seed. Coordinate radius is 1 in both views, "
                 "but realized displacement can differ after projection and polar retraction. "
-                f"Zero sensitivities floored at 1eâˆ’15 for the log axis: {zero_count}. Slices are not full-space flatness.\n"
+                f"Zero sensitivities floored at 1e-15 for the log axis: {zero_count}. Slices are not full-space flatness.\n"
                 "Reference DA-10: 116 CUDA + 364 CPU runs; no-momentum DA-10: 480 CPU runs.",
                 ha="center", va="bottom", fontsize=8)
     figure.legend(handles=[
@@ -897,13 +897,13 @@ def _optimizer_context_figure(report: Mapping[str, Any], artifact: Any) -> str:
         performance_axis.set_title(f"{task.upper()}: completed terminal performance")
         performance_axis.grid(axis="y", which="both", color="#dddddd", linewidth=.6)
         landscape_axis.set_yscale("log")
-        landscape_axis.set_ylabel("Ambient p95 |grid MSE âˆ’ center|")
+        landscape_axis.set_ylabel("Ambient p95 |grid MSE - center|")
         landscape_axis.set_title(f"{task.upper()}: terminal ambient slice sensitivity")
         landscape_axis.grid(axis="y", which="both", color="#dddddd", linewidth=.6)
         for axis in (fail_axis, performance_axis, landscape_axis):
             axis.set_xticks(x, labels, rotation=18, ha="right", fontsize=7.5)
 
-    figure.suptitle("Small-model optimizer context on f1/f4 (seeds 0â€“9)", fontsize=14)
+    figure.suptitle("Small-model optimizer context on f1/f4 (seeds 0-9)", fontsize=14)
     figure.text(.5, .015,
                 "SGD, AdamW and Moonlight Muon have only these 10 seeds and use different recipes. "
                 "Old DA-10 f1/f4 landscape runs were trained on CUDA; the new no-momentum run and legacy baseline "
@@ -942,8 +942,8 @@ def _surface_figure(report: Mapping[str, Any], artifact: Any, old_cache: Path, n
 
     momentum = {_logical_key(row): row for row in report["runs"]["momentum"]}
     no_momentum = {_logical_key(row): row for row in report["runs"]["no_momentum"]}
-    figure, axes = plt.subplots(2, 4, figsize=(14, 7), squeeze=False)
-    figure.subplots_adjust(left=.06, right=.90, top=.87, bottom=.18, wspace=.20, hspace=.30)
+    figure, axes = plt.subplots(2, 4, figsize=(14, 9), squeeze=False)
+    figure.subplots_adjust(left=.06, right=.90, top=.87, bottom=.18, wspace=.20, hspace=.55)
     selected = []
     for row_index, task in enumerate(("f1", "f4")):
         keys = sorted(
@@ -984,7 +984,8 @@ def _surface_figure(report: Mapping[str, Any], artifact: Any, old_cache: Path, n
             axis.text(.02, .02, f"Center {grid[15, 15]:.4g}\nNonfinite {(~np.isfinite(grid)).sum()}/961",
                       transform=axis.transAxes, color="white", fontsize=7,
                       bbox={"facecolor": "black", "alpha": .55, "edgecolor": "none"})
-        color_axis = figure.add_axes([.925, .58 if row_index == 0 else .24, .014, .24])
+        position = axes[row_index, -1].get_position()
+        color_axis = figure.add_axes([.925, position.y0, .014, position.height])
         figure.colorbar(last_image, cax=color_axis, label="Training MSE (log scale)")
     figure.suptitle("Actual terminal loss slices: momentum and no-momentum DA-10", fontsize=14)
     figure.text(.5, .055,
