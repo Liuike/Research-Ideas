@@ -13,9 +13,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}}"
 PLAN_FILE="${1:?Pass the paired Manifold plan created by experiment plan}"
 # Direct mapping: row/task 0 = momentum .95, row/task 1 = momentum 0.
 # Shared decoder validates argv and prints semantic metadata in DRY_RUN mode.
 # The longer allocation reflects the exact-SVD DA-10 engineering timings.
-COMMAND=(bash "${SCRIPT_DIR}/oscar_pure_cifar.sbatch" "${PLAN_FILE}")
+export PROJECT_ROOT
+COMMAND=(bash "${PROJECT_ROOT}/scripts/oscar_pure_cifar.sbatch" "${PLAN_FILE}")
 "${COMMAND[@]}"

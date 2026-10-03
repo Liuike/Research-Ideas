@@ -617,6 +617,13 @@ analysis quality check is preregistered at 1e-3, retaining each measured error;
 this is a numerical verification threshold, not a training correction.
 No parameter or optimizer update is clamped or changed in response.
 
-Disposable Oscar validation is pending. Exact DA-10 requires 88 SVDs per
+Oscar setup passed 373 tests (9 expected skips, one integration deselection).
+Both dry-run mappings and `sbatch --test-only` checks passed. First disposable
+array `6976204` exited 127 before Python/W&B initialization: Slurm spooled the
+wrapper into `/var/spool/slurmd`, so its sibling-launcher path was invalid.
+The wrapper now resolves the shared launcher through `SLURM_SUBMIT_DIR` or
+explicit `PROJECT_ROOT`; retained logs record both failed tasks.
+
+Corrected disposable Oscar validation is pending. Exact DA-10 requires 88 SVDs per
 minibatch and roughly 5.5 million per full run. Measure L40S runtime before
 allocating scientific jobs. No full run has been launched.
