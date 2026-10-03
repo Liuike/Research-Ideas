@@ -980,7 +980,7 @@ def _surface_figure(report: Mapping[str, Any], artifact: Any, old_cache: Path, n
             axis.scatter([0], [0], s=26, marker="o", facecolors="none", edgecolors="white", linewidths=1.2)
             axis.set_title(label, fontsize=9)
             axis.set_xlabel("Direction coordinate 1")
-            axis.set_ylabel(f"{task.upper()} / coordinate 2")
+            axis.set_ylabel(f"{task.upper()} / coordinate 2" if axis is axes[row_index, 0] else "")
             axis.text(.02, .02, f"Center {grid[15, 15]:.4g}\nNonfinite {(~np.isfinite(grid)).sum()}/961",
                       transform=axis.transAxes, color="white", fontsize=7,
                       bbox={"facecolor": "black", "alpha": .55, "edgecolor": "none"})
