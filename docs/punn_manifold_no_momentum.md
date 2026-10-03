@@ -31,8 +31,9 @@ order and ambient random directions with the reference DA-10 study.
 Feasible directions are projected separately
 at each model center. The recorded reference is a mixed-device study (116 CUDA
 and 364 CPU outcomes); the new study is entirely CPU, so device differences
-must be disclosed in the paired comparison. The classification cells retain the
-pre-registered \(\lambda=0.0001\) L2 penalty; f1 and f4 retain \(\lambda=0\).
+must be disclosed in the paired comparison. Only the regularized classification
+cells use the pre-registered \(\lambda=0.0001\) L2 penalty. Small and oversized
+cells, including f1 and f4, retain \(\lambda=0\).
 Initialization uses the same polar Stiefel retraction before training.
 
 ## Recorded outcomes
@@ -67,3 +68,45 @@ defines a separate 16-cell, two-epoch CPU engineering check with three-point
 slices. Its `engineering-smoke` stage and run group keep it out of scientific
 outcomes. It must verify that both views and the expected loss references are
 retained before the scientific plan is launched.
+
+## Execution, October 3, 2026
+
+The 16 engineering cases completed and passed independent raw recording and
+dataset readback in [audit 9txrb9ph](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/9txrb9ph).
+Engineering outcomes are excluded from the scientific comparison. The original
+73 recording/optimizer/resume tests and three no-momentum tests passed; an
+independent review found no blocking update-rule or recipe issue.
+
+The full 480-condition CPU plan was expanded through the frozen experiment
+planner and launched with eight one-thread workers. The online controller is
+[404egm3t](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/404egm3t),
+group `punn-manifold-landscape-no-momentum-cpu-v1`. Scientific training uses the
+clean isolated checkout `.cache/da10-no-momentum-cpu-fb8f9b1`, revision
+`fb8f9b1afaaf9a0dbdc7e003d55892edb626a876`, raw source SHA256
+`15123dbfdb7ae923f6bbfe6e946c9cf57aaa502364fdee4ae3a5c737db76b65f`
+(141 files). This checkout must remain unchanged during training and resume.
+
+Hourly monitoring is active. Interim counts check online recipes/source and
+immutable manifests; final completion requires full raw artifact readback.
+The final graph bundle remains pending until all registered outcomes and
+diagnostics are retained. Failures and incomplete infrastructure attempts
+must remain separate.
+
+Initial scientific full readback verified 56 completed outcomes with zero
+numerical failures and no excluded attempts in
+[audit 0gz4pgvk](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/0gz4pgvk).
+This verifies those retained raw payloads; the rest of the sweep is still
+running and no final comparison is claimed.
+
+The final publisher is `optimizer_resurrection.punn_no_momentum_publish`.
+Run it from the original repository with `PYTHONPATH` pointing to the original
+`src` directory, after committing the analysis source, using the shared frozen
+environment and `--scientific-checkout .cache/da10-no-momentum-cpu-fb8f9b1`.
+It requires all 480 raw recordings, verifies immutable historical references
+and seed/data/order pairing, and writes its report and figures to a W&B
+artifact. The figures include numerical failures, terminal train/test MSE
+across five methods and six tasks, and the available ambient/feasible landscape
+comparisons. The analysis, acceptance and historical-reference checks add 19
+passing tests (95 focused tests including the earlier checks). Synthetic
+fixtures were used only for visual layout checks and were not published as
+scientific results.

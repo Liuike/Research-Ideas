@@ -111,3 +111,19 @@ The hourly monitor has the failure identity and recovery instructions.
 ### Final recorded DA-10 result, October 1, 2026
 
 All 480 unique recorded outcomes were verified from immutable raw W&B artifacts:116 CUDA and 364 CPU, zero numerical failures. Retry controller `gnxjbr6w` completed iris-oversized seed21 as `5d8b3j1y`; the original five incomplete attempts remain excluded. The [final graph/report bundle](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/e00u5oe9) contains ambient/feasible distributions, training-time sensitivity, matched optimizer comparisons, terminal train/test MSE, and actual retained surfaces. All 60 historical baseline attempts were validated; five SGD numerical failures remain in their denominators. Common-completed medians are shown separately to expose survivor selection. Feasible sensitivity is lower in 11/16 DA-10 cells, but this is a 2D exploratory comparison, not a broad optimizer or full-space flatness claim. Scoped results and limitations are in [the landscape study](punn_manifold_landscape.md). Hourly monitoring is paused.
+
+### DA-10 without momentum, October 3, 2026
+
+The user clarified that momentum should be removed entirely (beta=0), not
+only Nesterov. The distinct registered method
+`manifold_muon_da10_no_momentum` uses the current raw gradient as the DA-10
+input and creates no momentum buffer; the output head's AdamW is unchanged.
+The [480-condition CPU plan](../configs/product_unit/manifold_landscape_no_momentum_cpu.yaml)
+retains the original cells, seeds, 500 epochs and both 31x31 landscape views.
+All16 engineering cases passed raw/dataset readback in audit `9txrb9ph`.
+The scientific controller [404egm3t](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/404egm3t)
+runs eight local one-thread workers from clean revision `fb8f9b1`; hourly
+monitoring has resumed for this study. Final failure/performance/landscape
+graphs are pending complete audited outcomes. The previous study remains
+complete and unchanged. See [the no-momentum preregistration](punn_manifold_no_momentum.md)
+for source identity, update rule and comparison limits.
