@@ -624,6 +624,42 @@ wrapper into `/var/spool/slurmd`, so its sibling-launcher path was invalid.
 The wrapper now resolves the shared launcher through `SLURM_SUBMIT_DIR` or
 explicit `PROJECT_ROOT`; retained logs record both failed tasks.
 
-Corrected disposable Oscar validation is pending. Exact DA-10 requires 88 SVDs per
-minibatch and roughly 5.5 million per full run. Measure L40S runtime before
-allocating scientific jobs. No full run has been launched.
+Corrected disposable array `6977373` completed both tasks with scheduler exit
+0. Online runs `ta026fhu` and `xggmgzap` and strict analysis `6i50kik9` verified
+the two cells, paired projected/original initialization, two gradient batches
+and 16 dual measurements each, both probes and all 35 slice masks per probe.
+GPU/Slurm metadata identified one L40S per task. All probes, curvature and
+slices were finite. The verified disposable W&B group was deleted before
+scientific submission; scheduler logs remain under `logs/slurm` on Oscar.
+The corrected clean revision passed 374 tests (9 expected skips, one
+integration deselection), shell syntax, both dry-run mappings and Slurm
+test-only checks.
+
+The smoke's shared projected digest was
+`90018bef80b80aeb127e46d7d1e98ed70ebc919a5042700f053766f2dfa1d5d7`.
+The original digest was
+`88cd2ffc3183a8dffca0f7826fe40a76f121bc0e91bd27c8313993a103fb621c`.
+These seed-999 smoke digests differ from Windows smokes; pairing is verified
+within the Oscar pair, not assumed across platforms. Training excluding
+diagnostic host time was 1.146 and 1.117 seconds per minibatch. Two-batch
+estimates suggest about 20–25 hours for 62,560 minibatches with diagnostics;
+the 36-hour allocation leaves headroom but is not a completion guarantee.
+Exact DA-10 uses 88 SVDs per minibatch, roughly 5.5 million per full run.
+
+Scientific array **`6977468`** is submitted: task 0 uses momentum 0.95 with
+Nesterov, task 1 uses momentum 0. Both use seed 0, one L40S, four CPUs, 32 GB,
+36 hours, and array throttle two. Source revision is
+`e9c0787c9ff32bda9e5ddb8925f7f2b17aa3e8f9`, source-tree digest
+`2961e8cc9fd7e1b83f988b7c12fdde159db12fb6b3c133ec191578d5a2986d0a`,
+checkout `/oscar/scratch/ezhan153/pure-manifold-c1cff85`.
+The command was `sbatch scripts/oscar_pure_manifold.sbatch plans/pure-mm-science.jsonl`;
+the two-row plan was expanded through `experiment plan` from the registered
+config. Scientific results are pending in W&B group
+`pure-cifar10-resnet18-manifold-da10-landscape-v1`.
+
+Both scientific tasks are running on `gpu2709`, with clean source identity
+verified online. W&B runs are
+[`8rdy58r0` (momentum 0.95)](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/8rdy58r0)
+and [`pl494eta` (momentum 0)](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/pl494eta).
+A 45-minute follow-up in this task tracks terminal outcomes and strict
+analysis; it stays quiet while no actionable change occurs.
