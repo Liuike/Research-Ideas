@@ -133,4 +133,32 @@ zero numerical failures: 413 immutable-manifest checks plus a full raw check
 and terminal-summary recovery for iris-regularized seed25 (`phz8hu28`).
 The [recovery audit](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/6uuja5kb)
 preserves the missing-summary evidence and exact retained result; no scientific
-condition was rerun or changed. Eight CPU workers continue the remaining cells.
+condition was rerun or changed. Eight CPU workers continued the remaining cells.
+
+### Final no-momentum DA-10 result, October 3, 2026
+
+All 480 CPU outcomes completed 500 epochs with zero numerical failures, zero
+excluded attempts and no missing conditions. The clean `fb8f9b1` scientific
+snapshot remains unchanged. [Full raw audit e361vpb0](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/e361vpb0)
+verified all datasets, 502 parameter states/run and 13 slices/view/run,
+checksums, finite masks, center/objective references, residuals and realized
+displacements. The recovered original `phz8hu28` is accepted and fully audited.
+
+The [final six-figure/report bundle](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/2446ajff)
+passed immutable checksum readback and visual inspection. Its report data are
+identical to initial publication `dw7cta11`; only labels/layout were corrected.
+All 480 recorded pairs passed data/init/order/ambient-direction checks, with
+the declared projected-initialization tolerance for 116 cross-device pairs.
+Historical CPU performance was independently paired through 480 DA-10 anchors.
+
+The five-method CPU failure totals are SGD 235/480, AdamW 4/480, Moonlight Muon
+21/480, momentum DA-10 0/480 and no-momentum DA-10 0/480. Against the historical
+momentum-enabled CPU control, no momentum worsened median held-out MSE in
+12/16 cells, improved all three XOR cells, and left f1-small equal. The same
+twelve cells have larger paired ambient/feasible terminal slice sensitivity.
+High finite losses are retained as performance, not failures. Direct recorded
+landscapes use the separate 116-CUDA/364-CPU reference versus 480 new CPU runs;
+the figures disclose that split and the limited historical baseline cohort.
+This is exploratory fixed-recipe evidence, not a significance or full-space
+flatness claim. Details are in [the no-momentum study](punn_manifold_no_momentum.md).
+All scientific workers have exited; hourly monitoring is paused.

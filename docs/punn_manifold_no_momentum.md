@@ -86,17 +86,17 @@ clean isolated checkout `.cache/da10-no-momentum-cpu-fb8f9b1`, revision
 `15123dbfdb7ae923f6bbfe6e946c9cf57aaa502364fdee4ae3a5c737db76b65f`
 (141 files). This checkout must remain unchanged during training and resume.
 
-Hourly monitoring is active. Interim counts check online recipes/source and
+At launch, hourly monitoring was active. Interim counts checked online recipes/source and
 immutable manifests; final completion requires full raw artifact readback.
-The final graph bundle remains pending until all registered outcomes and
+The final graph bundle was deferred until all registered outcomes and
 diagnostics are retained. Failures and incomplete infrastructure attempts
 must remain separate.
 
 Initial scientific full readback verified 56 completed outcomes with zero
 numerical failures and no excluded attempts in
 [audit 0gz4pgvk](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/0gz4pgvk).
-This verifies those retained raw payloads; the rest of the sweep is still
-running and no final comparison is claimed.
+This was an interim verification of those retained raw payloads while the
+remaining sweep was running.
 
 The final publisher is `optimizer_resurrection.punn_no_momentum_publish`.
 Run it from the original repository with `PYTHONPATH` pointing to the original
@@ -122,4 +122,70 @@ bringing the verified coverage to 414/480 with zero numerical failures. The
 audit preserves the original summary, checksums and recovery script; no
 training was rerun and no source or recipe changed. Its retained `wall_seconds`
 is explicitly marked as pre-upload training/recording time, rather than an
-inferred total duration. The other jobs remain active; final graphs are pending.
+inferred total duration. Other jobs were still active at this interim check.
+
+## Final audited result, October 3, 2026
+
+All **480/480 CPU outcomes completed 500 epochs**, with zero numerical failures,
+zero excluded attempts, no missing cells and no active scientific workers.
+The exact clean scientific revision and 141-file digest above remain unchanged.
+[Full raw audit e361vpb0](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/e361vpb0)
+verified immutable entry checksums, datasets, all parameter/slice schedules,
+finite masks, center MSE and L2 objectives, constraint residuals, realized
+displacements and independent center/corner evaluations. The recordings retain
+240,960 parameter states and 12,480 landscape grids (13 per view per run).
+The metadata recovery for `phz8hu28` remains documented and was included in
+this final raw audit; it did not create a replacement scientific outcome.
+
+The [final report and six figures](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/2446ajff)
+are retained in immutable artifact
+`enyan_zhang1-brown-university/optimizer-resurrection/punn-da10-no-momentum-comparison-2446ajff:v0`.
+Every report/image entry passed live checksum readback and visual review.
+The initial publication `dw7cta11` is preserved; the final rendering corrects
+labels and surface spacing only, with identical report data and no training
+added. The six existing report tests passed after the formatting corrections;
+95 distinct focused acceptance/optimizer/publication checks passed overall.
+
+Every one of the 480 recorded pairs passed dataset, preprojection
+initialization, minibatch-order and ambient-direction equality checks.
+Projected initialization is bitwise equal for the 364 CPU/CPU pairs; the 116
+CUDA/CPU pairs passed the declared tolerance (maximum absolute difference
+7.75e-7). The separate legacy CPU performance study was independently anchored
+through all 480 DA-10 outcomes. The five-method performance/failure figures use
+those historical CPU cohorts. Direct recorded landscape/performance figures
+use the prior 116-CUDA/364-CPU DA-10 reference versus the new all-CPU study.
+The prior recorded reference's five incomplete attempts and the legacy CPU
+reference's 13 declared DA-10 infrastructure attempts remain preserved outside
+their accepted logical-condition denominators.
+
+| Method | Numerical failures / 480 logical conditions |
+| --- | ---: |
+| SGD | 235 |
+| AdamW | 4 |
+| Moonlight Muon | 21 |
+| DA-10, momentum 0.95 | 0 |
+| DA-10, no momentum | 0 |
+
+Removing matrix momentum raised median held-out MSE in **12 of 16 cells**
+relative to the momentum-enabled CPU control, lowered it in the three XOR
+cells, and left f1-small exactly equal. For example, iris-oversized median
+held-out MSE increased from 0.2224 to 20.2026, and wine-regularized from 0.1253
+to 3.5865. High finite losses remain in the performance distributions and are
+not numerical failures. These are descriptive comparisons of fixed recipes,
+not significance tests or general optimizer rankings.
+
+The same twelve cells with worse held-out medians have larger median paired
+terminal p95 absolute MSE changes in both ambient and feasible slices.
+Classification cells show particularly large changes. The graph retains all
+30 terminal grids per method/view/cell, with no nonfinite terminal grid points
+in either DA-10 study. Actual f1/f4-small surfaces use the lowest shared completed
+seed (seed 0), with one color scale per task across both methods/views.
+Feasible directions depend on each center, and coordinate radius does not
+equal realized displacement after retraction. In f1-small, the exponent
+tangent dimension is zero: its feasible slice varies the head only. These
+sampled 2D comparisons do not establish full-space flatness or a causal
+mechanism. Earlier SGD/AdamW/Moonlight landscapes retain their restricted
+f1/f4-small, seeds 0-9 cohort and five failed SGD attempts in denominators.
+
+Hourly monitoring is paused after verified completion, graph publication and
+documentation. The old recorded DA-10 studies remain unchanged.
