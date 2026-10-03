@@ -989,8 +989,9 @@ def _surface_figure(report: Mapping[str, Any], artifact: Any, old_cache: Path, n
     figure.suptitle("Actual terminal loss slices: momentum and no-momentum DA-10", fontsize=14)
     figure.text(.5, .055,
                 "Lowest shared completed seed selected before inspecting the surfaces: " + ", ".join(selected) + ". "
-                "Each task uses one color scale across four panels. White rings mark the recorded centers; "
-                "nonfinite samples are masked. Feasible axes use tangent projection and polar retraction. "
+                "Each task uses one color scale across four panels; white rings mark centers and nonfinite samples are masked.\n"
+                "Old f1/f4 DA-10 training used CUDA; no-momentum DA-10 training used CPU. "
+                "Feasible axes use tangent projection and polar retraction.\n"
                 "The f1-small feasible exponent slice varies only the output head. These are sampled 2D slices, not full-space flatness.",
                 ha="center", va="bottom", fontsize=8, wrap=True)
     filename = "da10_no_momentum_terminal_surfaces.png"
