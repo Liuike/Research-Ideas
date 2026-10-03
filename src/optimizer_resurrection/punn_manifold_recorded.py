@@ -99,8 +99,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # The base parser remains the authority for every frozen training setting.
     training = stability.parse_args(["--protocol", TRAINING_PROTOCOL, *training_argv])
-    if training.method != stability.MANIFOLD_METHOD:
-        parser.error("recorded DA-10 runs require the plain manifold_muon_da10 recipe")
+    if training.method not in stability.MANIFOLD_METHODS:
+        parser.error("recorded DA-10 runs require a registered manifold recipe")
     if training.device != recording.landscape_device:
         parser.error("training and landscape devices must match in the registered run")
     args = argparse.Namespace(**vars(training))
@@ -109,8 +109,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.protocol = PROTOCOL
     args.training_protocol = TRAINING_PROTOCOL
     args.condition_id = _condition_id(_condition_values(training, recording))
-    if args.run_name == f"punn-stability-{args.task}-{args.architecture}-{stability.MANIFOLD_METHOD}-seed{args.seed}":
-        args.run_name = f"punn-manifold-recorded-{args.task}-{args.architecture}-seed{args.seed}"
+    if args.run_name == f"punn-stability-{args.task}-{args.architecture}-{args.method}-seed{args.seed}":
+        suffix = "" if args.method == stability.MANIFOLD_METHOD else "-no-momentum"
+        args.run_name = f"punn-manifold-recorded-{args.task}-{args.architecture}{suffix}-seed{args.seed}"
     return args
 
 
@@ -839,7 +840,9 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
         "optimizer": "ManifoldMuon DA-10 plus AdamW auxiliary",
         "optimizer_assignment": "DA-10 on projected exponents; AdamW on output weight and bias",
         "optimizer_recipe": {key: getattr(args, key) for key in stability.MANIFOLD_RECIPE},
-        "training_recipe_source": "configs/product_unit/manifold_architecture_stability.yaml",
+        "training_recipe_source": ("configs/product_unit/manifold_landscape_no_momentum_cpu.yaml"
+                                   if args.method == stability.MANIFOLD_NO_MOMENTUM_METHOD else
+                                   "configs/product_unit/manifold_architecture_stability.yaml"),
         "recording": {
             "views": list(args.landscape_views),
             "slice_points": args.slice_points,
@@ -854,6 +857,10 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
         "condition_id": args.condition_id,
         "condition_values": _condition_values(args, args),
     }
+    if args.method == stability.MANIFOLD_NO_MOMENTUM_METHOD:
+        provenance.update(manifold_nesterov=False,
+                          momentum_buffer="disabled; DA-10 input is the current raw gradient",
+                          optimizer_note="No-momentum DA-10 ablation; auxiliary AdamW unchanged")
     import wandb
 
     run = wandb.init(

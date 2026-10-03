@@ -75,9 +75,13 @@ class ManifoldMuon(Optimizer):
                 if p.grad is None:
                     continue
                 state = self.state[p]
-                momentum = state.setdefault("momentum_buffer", torch.zeros_like(p))
-                momentum.mul_(group["momentum"]).add_(p.grad)
-                grad = p.grad.add(momentum, alpha=group["momentum"]) if group["nesterov"] else momentum
+                if group["momentum"] == 0:
+                    # No history is created or consumed by the no-momentum ablation.
+                    grad = p.grad
+                else:
+                    momentum = state.setdefault("momentum_buffer", torch.zeros_like(p))
+                    momentum.mul_(group["momentum"]).add_(p.grad)
+                    grad = p.grad.add(momentum, alpha=group["momentum"]) if group["nesterov"] else momentum
                 direction, residual, iterations = manifold_muon_direction(
                     p,
                     grad,

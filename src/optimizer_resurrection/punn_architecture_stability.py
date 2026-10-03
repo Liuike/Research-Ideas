@@ -44,6 +44,8 @@ MANIFOLD_PROTOCOL = "punn-manifold-architecture-stability-v1"
 METHOD = "sgd"
 ADAPTIVE_METHODS = ("adamw", "muon_moonlight")
 MANIFOLD_METHOD = "manifold_muon_da10"
+MANIFOLD_NO_MOMENTUM_METHOD = "manifold_muon_da10_no_momentum"
+MANIFOLD_METHODS = (MANIFOLD_METHOD, MANIFOLD_NO_MOMENTUM_METHOD)
 ARCHITECTURES = ("small", "oversized", "regularized")
 CLASSIFICATION_TASKS = {"xor", "iris", "wine", "diabetes"}
 RUNTIME_FIELDS = {"condition_id", "dry_run", "run_group", "run_name", "stage"}
@@ -107,6 +109,17 @@ MANIFOLD_RECIPE = {
     "dual_learning_rate": 0.01,
     "dual_iterations": 10,
 }
+MANIFOLD_RECIPES = {
+    MANIFOLD_METHOD: MANIFOLD_RECIPE,
+    MANIFOLD_NO_MOMENTUM_METHOD: {**MANIFOLD_RECIPE, "momentum": 0.0},
+}
+
+
+def manifold_nesterov(method: str) -> bool:
+    """Preserve the original recipe; disable momentum in the ablation."""
+    if method not in MANIFOLD_METHODS:
+        raise ValueError(f"unknown registered Manifold method: {method}")
+    return method == MANIFOLD_METHOD
 
 
 def _dimensions(task: str, architecture: str) -> tuple[int, int, int]:
@@ -180,7 +193,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--protocol", choices=[PROTOCOL, ADAPTIVE_PROTOCOL, MANIFOLD_PROTOCOL], default=PROTOCOL)
     parser.add_argument("--task", choices=sorted(TASK_SPECS), required=True)
     parser.add_argument("--architecture", choices=ARCHITECTURES, required=True)
-    parser.add_argument("--method", choices=[METHOD, *ADAPTIVE_METHODS, MANIFOLD_METHOD], default=METHOD)
+    parser.add_argument("--method", choices=[METHOD, *ADAPTIVE_METHODS, *MANIFOLD_METHODS], default=METHOD)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--data-seed", type=int, required=True)
     parser.add_argument("--epochs", type=int, default=500)
@@ -239,14 +252,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         if any(hasattr(args, key) for key in ("manifold_scale", "dual_learning_rate", "dual_iterations")):
             parser.error("manifold settings require the manifold stability protocol")
     else:
-        if args.method != MANIFOLD_METHOD:
-            parser.error("the manifold stability protocol requires manifold_muon_da10")
+        if args.method not in MANIFOLD_METHODS:
+            parser.error("the manifold stability protocol requires a registered DA-10 method")
         if any(not hasattr(args, key) for key in MANIFOLD_RECIPE_FIELDS):
             parser.error("manifold stability runs require every frozen DA-10 setting")
         args.secondary = args.secondary == "true"
         actual_recipe = {key: getattr(args, key) for key in MANIFOLD_RECIPE_FIELDS}
-        if actual_recipe != MANIFOLD_RECIPE:
-            parser.error("manifold settings must match the registered plain DA-10 recipe")
+        if actual_recipe != MANIFOLD_RECIPES[args.method]:
+            parser.error("manifold settings must match the registered DA-10 method recipe")
     if not math.isfinite(args.regularization_lambda) or args.regularization_lambda < 0:
         parser.error("regularization-lambda must be finite and nonnegative")
     if args.architecture == "regularized":
@@ -427,12 +440,15 @@ def _expand_adaptive_config(config: dict[str, Any]) -> list[list[str]]:
 
 
 def _expand_manifold_config(config: dict[str, Any]) -> list[list[str]]:
-    """Register only the plain DA-10 condition over the existing 16-cell matrix."""
+    """Expand one frozen DA-10 method over the existing 16-cell matrix."""
     if set(config) != ADAPTIVE_CONFIG_FIELDS or config.get("protocol") != MANIFOLD_PROTOCOL:
         raise ValueError("invalid manifold architecture-stability config fields")
-    if config.get("methods") != [MANIFOLD_METHOD]:
-        raise ValueError("the plain DA-10 plan requires only manifold_muon_da10")
-    if config.get("optimizer_settings") != {MANIFOLD_METHOD: MANIFOLD_RECIPE}:
+    methods = config.get("methods")
+    if not isinstance(methods, list) or len(methods) != 1 or methods[0] not in MANIFOLD_METHODS:
+        raise ValueError("the DA-10 plan requires exactly one registered manifold method")
+    method = methods[0]
+    recipe = MANIFOLD_RECIPES[method]
+    if config.get("optimizer_settings") != {method: recipe}:
         raise ValueError("the plain DA-10 plan must use the fixed registered recipe")
     if config["device"] not in {"cpu", "cuda"}:
         raise ValueError("Manifold stability device must be cpu or cuda")
@@ -454,18 +470,18 @@ def _expand_manifold_config(config: dict[str, Any]) -> list[list[str]]:
             "protocol": MANIFOLD_PROTOCOL,
             "task": task,
             "architecture": architecture,
-            "method": MANIFOLD_METHOD,
+            "method": method,
             "seed": seed,
             "data_seed": seed + config["data_seed_offset"],
             "epochs": config["epochs"],
             "regularization_lambda": (config["regularization_lambda"]
                                       if architecture == "regularized" else 0.0),
-            **MANIFOLD_RECIPE,
+            **recipe,
             "log_every": config["log_every"],
             "device": config["device"],
             "stage": config["stage"],
             "run_group": config["run_group"],
-            "run_name": f"punn-stability-{task}-{architecture}-{MANIFOLD_METHOD}-seed{seed}",
+            "run_name": f"punn-stability-{task}-{architecture}-{method}-seed{seed}",
         }
         command = ["python", "-m", "optimizer_resurrection.punn_architecture_stability"]
         for key, value in values.items():
@@ -629,7 +645,7 @@ def run_trial(
 
         optimizer = OptimizerBundle(
             ManifoldMuon([model.exponents], lr=args.learning_rate,
-                         momentum=args.momentum, nesterov=True,
+                         momentum=args.momentum, nesterov=manifold_nesterov(args.method),
                          dual_lr=args.dual_learning_rate,
                          max_iterations=args.dual_iterations,
                          scale=args.manifold_scale),
@@ -942,13 +958,13 @@ def run_trial(
         if args.method == "muon_moonlight":
             result["muon_nesterov"] = True
             result["muon_ns_steps"] = 5
-        if args.method == MANIFOLD_METHOD:
+        if args.method in MANIFOLD_METHODS:
             result.update({
                 "preprojection_initialization_digest": preprojection_initialization_digest,
                 "manifold_scale": args.manifold_scale,
                 "dual_learning_rate": args.dual_learning_rate,
                 "dual_iterations": args.dual_iterations,
-                "manifold_nesterov": True,
+                "manifold_nesterov": manifold_nesterov(args.method),
                 "initial_stiefel_residual": initial_stiefel_residual,
                 "final_stiefel_residual": stiefel_residual(model.exponents, args.manifold_scale)
                 if bool(torch.isfinite(model.exponents).all()) else None,
@@ -1041,10 +1057,14 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
             optimizer_assignment = "DA-10 on projected exponents; AdamW on output weight and bias"
             optimizer_betas = {"auxiliary_adamw": [0.9, 0.95]}
             optimizer_note = "Plain fixed-scale DA-10 recipe; no tuning or extra controls"
+            if args.method == MANIFOLD_NO_MOMENTUM_METHOD:
+                optimizer_note = "No-momentum DA-10 ablation; current raw gradient, no buffer or Nesterov"
         optimizer_provenance = {
             "optimizer": optimizer_name,
             "optimizer_assignment": optimizer_assignment,
-            "optimizer_recipe_source": ("configs/product_unit/manifold_architecture_stability.yaml"
+            "optimizer_recipe_source": ("configs/product_unit/manifold_landscape_no_momentum_cpu.yaml"
+                                        if args.method == MANIFOLD_NO_MOMENTUM_METHOD else
+                                        "configs/product_unit/manifold_architecture_stability.yaml"
                                         if args.protocol == MANIFOLD_PROTOCOL else
                                         "configs/product_unit/gradient_defaults.yaml"),
             "optimizer_recipe": {
@@ -1063,12 +1083,12 @@ def main(argv: list[str] | None = None) -> dict[str, Any] | None:
             optimizer_provenance["moonlight_source"] = MOONLIGHT_SOURCE
             optimizer_provenance["muon_nesterov"] = True
             optimizer_provenance["muon_ns_steps"] = 5
-        if args.method == MANIFOLD_METHOD:
+        if args.method in MANIFOLD_METHODS:
             optimizer_provenance.update({
                 "manifold_scale": args.manifold_scale,
                 "dual_learning_rate": args.dual_learning_rate,
                 "dual_iterations": args.dual_iterations,
-                "manifold_nesterov": True,
+                "manifold_nesterov": manifold_nesterov(args.method),
                 "exponent_projection": "SVD polar projection before training and after every DA-10 update",
             })
     else:
