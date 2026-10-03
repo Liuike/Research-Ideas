@@ -110,3 +110,16 @@ comparisons. The analysis, acceptance and historical-reference checks add 19
 passing tests (95 focused tests including the earlier checks). Synthetic
 fixtures were used only for visual layout checks and were not published as
 scientific results.
+
+At the October 3 hourly check, 413 outcomes passed exact recipe/source and
+immutable manifest reconciliation. Run `phz8hu28` (iris regularized, seed 25)
+had a missing online terminal summary despite its complete immutable recording.
+Independent raw/data/source and center/corner checks verified its completed
+500 epochs, 502 states and 13 slices per view. Its missing terminal metadata
+was backfilled from that retained snapshot in
+[recovery audit 6uuja5kb](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/6uuja5kb),
+bringing the verified coverage to 414/480 with zero numerical failures. The
+audit preserves the original summary, checksums and recovery script; no
+training was rerun and no source or recipe changed. Its retained `wall_seconds`
+is explicitly marked as pre-upload training/recording time, rather than an
+inferred total duration. The other jobs remain active; final graphs are pending.

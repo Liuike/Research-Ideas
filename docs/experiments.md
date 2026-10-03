@@ -127,3 +127,10 @@ monitoring has resumed for this study. Final failure/performance/landscape
 graphs are pending complete audited outcomes. The previous study remains
 complete and unchanged. See [the no-momentum preregistration](punn_manifold_no_momentum.md)
 for source identity, update rule and comparison limits.
+
+October 3 hourly reconciliation verified 414/480 no-momentum outcomes with
+zero numerical failures: 413 immutable-manifest checks plus a full raw check
+and terminal-summary recovery for iris-regularized seed25 (`phz8hu28`).
+The [recovery audit](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/6uuja5kb)
+preserves the missing-summary evidence and exact retained result; no scientific
+condition was rerun or changed. Eight CPU workers continue the remaining cells.
