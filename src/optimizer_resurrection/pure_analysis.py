@@ -9,8 +9,12 @@ from pathlib import Path
 
 import yaml
 
-from .pure_cifar import PARAMETERS, expand_config, parse_args
+from .pure_cifar import MANIFOLD_PROTOCOL, PARAMETERS, expand_config, parse_args
 from .tracking import RunRecord, load_wandb_credentials, require_online_wandb, wandb_analysis_run
+
+# FP32 CUDA SVD on 512x4608 kernels has measured max orthogonality errors
+# around 2e-4 in engineering smokes. Retain every error, reject gross drift.
+MANIFOLD_CONSTRAINT_TOLERANCE = 1e-3
 
 
 def summarize_records(config, records):
@@ -54,6 +58,20 @@ def summarize_records(config, records):
             raise ValueError(f"missing terminal outcome: {record.run_id}")
         if s.get("parameter_count") != PARAMETERS or not s.get("initialization_digest") or not s.get("dataset_digest"):
             raise ValueError("missing model/data identity")
+        if args.protocol == MANIFOLD_PROTOCOL:
+            names = [f"layer{stage}.{block}.conv2.weight" for stage in range(1, 5) for block in range(2)]
+            if (s.get("manifold_parameter_names") != names or
+                    not s.get("unprojected_initialization_digest") or
+                    s.get("manifold_sign_backend") != "exact_svd" or
+                    s.get("manifold_nesterov") != (args.momentum > 0) or
+                    not s.get("auxiliary_parameter_names")):
+                raise ValueError("missing Manifold routing/initialization identity")
+            constraints = s.get("manifold_initial_constraints")
+            if constraints is None:
+                # W&B flattens nested summary dictionaries using a dot prefix.
+                constraints = {k: v for k, v in s.items() if k.startswith("manifold_initial_constraints.")}
+            if len(constraints) != 16 or any(not math.isfinite(float(v)) or float(v) > MANIFOLD_CONSTRAINT_TOLERANCE for v in constraints.values()):
+                raise ValueError("invalid initial Stiefel constraints")
         if getattr(args, "landscape", False):
             from .pure_landscape import probe_epochs
             schedule = list(probe_epochs(args))
@@ -90,6 +108,12 @@ def summarize_records(config, records):
         raise ValueError(f"incomplete PURe plan: {len(observed)}/{len(expected)}")
     if len(revisions) > 1 or len(digests) > 1 or len(data) != 1:
         raise ValueError("inconsistent source or datasets")
+    if config["protocol"] == MANIFOLD_PROTOCOL:
+        for seed in config["seeds"]:
+            paired = [r for r in observed.values() if r.config["seed"] == seed]
+            for key in ("initialization_digest", "unprojected_initialization_digest", "landscape_probe_digest"):
+                if len({r.summary.get(key) for r in paired}) != 1:
+                    raise ValueError(f"Manifold pair identity mismatch: {key}")
     rows = [{"seed": r.config["seed"], "run_id": r.run_id, "url": r.url,
              **{key: r.summary.get(key) for key in ("terminal_outcome", "test_accuracy", "test_loss",
                 "training_seconds", "epochs_completed", "failure_reason", "failed_epoch",
@@ -97,7 +121,7 @@ def summarize_records(config, records):
     rows.sort(key=lambda row: row["seed"])
     good = [r for r in rows if r["terminal_outcome"] == "completed"]
     accuracy = [r["test_accuracy"] * 100 for r in good]
-    return {"expected_cells": len(expected), "observed_cells": len(observed),
+    report = {"expected_cells": len(expected), "observed_cells": len(observed),
         "completed": len(good), "numerical_failures": len(rows) - len(good),
         "all_seeds_completed": len(good) == len(rows), "rows": rows,
         "mean_test_accuracy_percent": statistics.mean(accuracy) if accuracy else None,
@@ -107,6 +131,14 @@ def summarize_records(config, records):
         "source_tree_digest": next(iter(digests), None), "dataset_digest": next(iter(data)),
         "source_run_ids": sorted(r.run_id for r in observed.values()),
         "interpretation": "PURe ResNet-18 CIFAR adaptation; no published accuracy target; no tuning"}
+    if config["protocol"] == MANIFOLD_PROTOCOL:
+        for row in rows:
+            row["momentum"] = next(r.config["momentum"] for r in observed.values() if r.run_id == row["run_id"])
+        report["mean_test_accuracy_percent"] = None
+        report["sd_test_accuracy_percent"] = None
+        report["mean_training_seconds"] = None
+        report["interpretation"] += "; paired DA-10 conditions; no pooling or SD across optimizers; ambient geometry only"
+    return report
 
 
 def validate_landscape_history(config, summary, history):
@@ -119,6 +151,19 @@ def validate_landscape_history(config, summary, history):
         raise ValueError("missing or duplicated landscape training epochs")
     for row in epochs:
         count = math.ceil(args.train_examples / args.batch_size)
+        if args.protocol == MANIFOLD_PROTOCOL:
+            if (row.get("manifold/minibatch_count") != count or
+                    row.get("manifold/dual_measurement_count") != 8 * count or
+                    row.get("manifold/dual_iterations") != 10):
+                raise ValueError("incomplete DA-10 update budget")
+            for key in ("manifold/tangent_residual_mean", "manifold/tangent_residual_max"):
+                if not math.isfinite(float(row.get(key, float("nan")))):
+                    raise ValueError("missing DA-10 residual")
+            for stage in range(1, 5):
+                for block in range(2):
+                    value = row.get(f"manifold/constraint/layer{stage}.{block}.conv2.weight/max_abs")
+                    if value is None or not math.isfinite(float(value)) or float(value) > MANIFOLD_CONSTRAINT_TOLERANCE:
+                        raise ValueError("missing/invalid Stiefel constraint")
         if (row.get("landscape/train/minibatch_count") != count or
                 row.get("landscape/train/gradient_valid_batches") != count or
                 row.get("landscape/train/nonfinite_gradient_batches") != 0):

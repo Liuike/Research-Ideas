@@ -8,6 +8,20 @@ from torch.optim import Optimizer
 from .muon import matrix_sign_svd
 
 
+def _as_matrix(tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Size]:
+    """View a matrix or convolution kernel in the Stiefel matrix geometry.
+
+    Convolution filters use one row per output channel and flatten their input
+    channels and spatial kernel dimensions. Two-dimensional inputs are
+    returned unchanged so the existing matrix path keeps the same operations.
+    """
+    if tensor.ndim == 2:
+        return tensor, tensor.shape
+    if tensor.ndim == 4:
+        return tensor.reshape(tensor.shape[0], -1), tensor.shape
+    raise ValueError("ManifoldMuon parameters must be 2D matrices or 4D convolution kernels")
+
+
 def _tall(matrix: torch.Tensor) -> tuple[torch.Tensor, bool]:
     transpose = matrix.shape[0] < matrix.shape[1]
     return (matrix.T if transpose else matrix), transpose
@@ -15,10 +29,11 @@ def _tall(matrix: torch.Tensor) -> tuple[torch.Tensor, bool]:
 
 @torch.no_grad()
 def retract_stiefel(matrix: torch.Tensor, scale: float = 1.0) -> torch.Tensor:
-    tall, transposed = _tall(matrix / scale)
+    matrix_view, original_shape = _as_matrix(matrix)
+    tall, transposed = _tall(matrix_view / scale)
     q = matrix_sign_svd(tall)
     result = q.T if transposed else q
-    return result.mul(scale)
+    return result.mul(scale).reshape(original_shape)
 
 
 @torch.no_grad()
@@ -34,8 +49,12 @@ def manifold_muon_direction(
     Returns a descent direction in the original orientation, its normalized
     tangent residual, and the fixed number of inner iterations used.
     """
-    w, transposed = _tall(weight / scale)
-    g, _ = _tall(gradient * scale)
+    if weight.shape != gradient.shape:
+        raise ValueError("weight and gradient must have the same shape")
+    weight_view, original_shape = _as_matrix(weight)
+    gradient_view, _ = _as_matrix(gradient)
+    w, transposed = _tall(weight_view / scale)
+    g, _ = _tall(gradient_view * scale)
     lam = -0.25 * (w.T @ g + g.T @ w)
     direction = torch.zeros_like(w)
     for iteration in range(max_iterations):
@@ -48,7 +67,7 @@ def manifold_muon_direction(
     # The reference takes W <- W - eta*A, so A is the gradient-like direction.
     if transposed:
         direction = direction.T
-    return direction, residual, max_iterations
+    return direction.reshape(original_shape), residual, max_iterations
 
 
 class ManifoldMuon(Optimizer):

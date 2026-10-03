@@ -1,0 +1,25 @@
+# Paired single-seed PURe ResNet-18 DA-10 landscape comparison.
+protocol: pure-cifar10-resnet18-manifold-da10-landscape-v1
+seeds: [0]
+data_seed_offset: 100000
+epochs: 160
+batch_size: 128
+learning_rate: 0.01
+momentums: [0.95, 0.0]
+weight_decay: 0.0
+milestones: [80, 120]
+gamma: 0.1
+device: cuda
+num_workers: 4
+data_dir: data/cifar10
+download: false
+train_examples: 50000
+test_examples: 10000
+secondary: true
+stage: exploratory
+run_group: pure-cifar10-resnet18-manifold-da10-landscape-v1
+landscape: true
+aux_learning_rate: 0.001
+manifold_scale: 1.0
+dual_learning_rate: 0.01
+dual_iterations: 10

@@ -1,0 +1,25 @@
+# Reduced local-GPU timing check for the paired Manifold Muon DA-10 path.
+protocol: pure-cifar10-resnet18-manifold-da10-landscape-v1
+seeds: [999]
+data_seed_offset: 100000
+epochs: 1
+batch_size: 128
+learning_rate: 0.01
+momentums: [0.95, 0.0]
+weight_decay: 0.0
+milestones: []
+gamma: 0.1
+device: cuda
+num_workers: 0
+data_dir: data/cifar10
+download: false
+train_examples: 256
+test_examples: 64
+secondary: true
+stage: engineering-smoke
+run_group: pure-cifar-manifold-local-smoke-v2
+landscape: true
+aux_learning_rate: 0.001
+manifold_scale: 1.0
+dual_learning_rate: 0.01
+dual_iterations: 10

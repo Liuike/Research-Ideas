@@ -3,7 +3,8 @@
 This implements the accepted adaptation of [arXiv:2505.04397v3](https://arxiv.org/html/2505.04397v3).
 The paper's CIFAR table uses ResNet20 and larger CIFAR models, so there is no
 published CIFAR ResNet-18 accuracy to reproduce. This experiment includes only
-five SGD runs of the four-stage PURe ResNet-18, without tuning or baselines.
+five SGD runs of the four-stage PURe ResNet-18. Subsequent sections record
+separately registered optimizer ablations, without tuning.
 
 ## Architecture and assumptions
 
@@ -561,3 +562,61 @@ accuracy and cross-entropy are measured on the full 10,000-image test set
 once, with no test-based selection. This is a paired descriptive comparison
 of two trajectories under the same protocol, not evidence that momentum
 generally avoids PURe landscape failures across seeds or architectures.
+
+## Manifold Muon DA-10 momentum pair
+
+The user requested paired seed-0 runs with and without Manifold Muon momentum.
+The preregistered record is [`manifold_seed0.yaml`](../configs/pure_cifar/manifold_seed0.yaml),
+protocol `pure-cifar10-resnet18-manifold-da10-landscape-v1`. Reuse the existing
+repository DA-10 implementation and PUNN recipe: exponent LR 0.01, dual LR
+0.01, ten fixed dual iterations, exact SVD polar factors, scale 1, and momentum
+0.95 with Nesterov versus momentum 0 with no momentum buffer. There is no
+tuning or approximate-polar substitution.
+
+Only the eight product exponent kernels use DA-10. Each is flattened to
+`(out_channels, in_channels * kernel_height * kernel_width)`; the wide matrices
+use row Stiefel geometry. All ordinary convolutions, BatchNorm affine
+parameters, scalar thresholds and classifier parameters use auxiliary AdamW
+with LR 0.001, betas (0.9, 0.95), epsilon 1e-8 and zero decay in both conditions.
+Thus "without momentum" refers to DA-10; auxiliary AdamW still retains moments.
+All parameters have zero decay. Both optimizers' learning rates decrease after
+epochs 80 and 120, with 160 epochs, batch 128 and final-model evaluation.
+
+Both conditions share the original Kaiming initialization, then project the
+eight exponent kernels onto scale-1 Stiefel matrices before training. Record
+both original and projected parameter digests. This changes initialization
+and constrains model capacity relative to SGD; the pair isolates DA-10
+momentum under this hybrid recipe, not an optimizer-only comparison to the
+earlier unprojected, decayed SGD model. Model size remains 11,173,970.
+
+Retain the existing every-minibatch gradient/update diagnostics, activation
+statistics and eight fixed training probes. Add per-epoch DA-10 residual
+mean/max, iteration/update counts, auxiliary LR and per-layer Stiefel errors.
+The existing Hessian and filter-normalized slices describe **ambient Euclidean
+geometry**: their perturbations leave the manifold. They do not estimate
+Riemannian curvature or manifold-restricted slices. With zero decay, the
+diagnostic "effective gradient" equals the raw gradient; actual updates also
+include DA-10 retraction or auxiliary AdamW.
+
+CPU runs `24n3l13y` and `6cfk7bkz` completed finite; strict analysis
+[`0kf36uok`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/0kf36uok)
+verified the paired digests, gradient counts, both probes and all slice masks.
+The first GPU smoke `zxl1rv8c` failed on a CPU/CUDA state-check mismatch after
+AdamW created its CPU step counter. The runner now checks finiteness separately
+per device. Corrected RTX 4060 Ti smokes `p8dezhvl` and `ejohunwb` completed
+finite, with strict analysis
+[`n3ltgwom`](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/n3ltgwom).
+They shared projected digest `2d713acb2476ceaadbb8e0c029cca7095e6989928a0d04a3f8ac2aa6d70f7167`.
+Peak allocations were 1,400,183,808 and 1,376,203,264 bytes. Training minus
+diagnostic host time was approximately 1.217 and 1.323 seconds per batch;
+these two-batch smoke estimates are not full-run benchmarks.
+
+FP32 CUDA SVD produced initial maximum Gram errors around 1.6e-4 and
+post-update errors around 2.1e-4; CPU errors were around 1e-6. The strict
+analysis quality check is preregistered at 1e-3, retaining each measured error;
+this is a numerical verification threshold, not a training correction.
+No parameter or optimizer update is clamped or changed in response.
+
+Disposable Oscar validation is pending. Exact DA-10 requires 88 SVDs per
+minibatch and roughly 5.5 million per full run. Measure L40S runtime before
+allocating scientific jobs. No full run has been launched.

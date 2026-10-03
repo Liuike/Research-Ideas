@@ -25,7 +25,9 @@ PROTOCOL = "pure-cifar10-resnet18-v1"
 PLAIN_PROTOCOL = "pure-cifar10-resnet18-plain-sgd-v1"
 LANDSCAPE_PROTOCOL = "pure-cifar10-resnet18-plain-sgd-landscape-v1"
 MOMENTUM_LANDSCAPE_PROTOCOL = "pure-cifar10-resnet18-momentum-sgd-landscape-v1"
-LANDSCAPE_PROTOCOLS = (LANDSCAPE_PROTOCOL, MOMENTUM_LANDSCAPE_PROTOCOL)
+MANIFOLD_PROTOCOL = "pure-cifar10-resnet18-manifold-da10-landscape-v1"
+LANDSCAPE_PROTOCOLS = (LANDSCAPE_PROTOCOL, MOMENTUM_LANDSCAPE_PROTOCOL, MANIFOLD_PROTOCOL)
+MANIFOLD_FIELDS = {"aux_learning_rate", "manifold_scale", "dual_learning_rate", "dual_iterations"}
 PARAMETERS = 11_173_970
 MEAN = (0.4914, 0.4822, 0.4465)
 STD = (0.2470, 0.2435, 0.2616)
@@ -49,6 +51,9 @@ def parse_args(argv=None):
                           ("weight-decay", .001), ("gamma", .1)):
         p.add_argument("--" + name, type=float, default=default)
     p.add_argument("--milestones", default="80,120")
+    for name in ("aux-learning-rate", "manifold-scale", "dual-learning-rate"):
+        p.add_argument("--" + name, type=float)
+    p.add_argument("--dual-iterations", type=int)
     p.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
     p.add_argument("--data-dir", default="data/cifar10")
     p.add_argument("--download", choices=["true", "false"], default="false")
@@ -64,6 +69,16 @@ def parse_args(argv=None):
     except ValueError:
         p.error("milestones must be comma-separated integers or 'none'")
     a.download, a.secondary = a.download == "true", a.secondary == "true"
+    if a.protocol == MANIFOLD_PROTOCOL:
+        if tuple(getattr(a, k) for k in ("aux_learning_rate", "manifold_scale", "dual_learning_rate", "dual_iterations")) != (.001, 1.0, .01, 10):
+            p.error("Manifold protocol requires the existing frozen DA-10 recipe")
+        if a.momentum not in {0.0, .95} or a.weight_decay != 0:
+            p.error("Manifold protocol requires momentum 0/.95 and zero weight decay")
+    else:
+        for key in MANIFOLD_FIELDS:
+            if getattr(a, key) is not None:
+                p.error("Manifold fields require the Manifold protocol")
+            delattr(a, key)  # Preserve existing SGD condition identities.
     if (a.landscape == "true") != (a.protocol in LANDSCAPE_PROTOCOLS):
         p.error("landscape diagnostics require the separate landscape protocol")
     if a.landscape == "true":
@@ -85,8 +100,9 @@ def parse_args(argv=None):
     if a.stage not in {"engineering-smoke", "test"}:
         frozen = (a.epochs, a.batch_size, a.learning_rate, a.momentum, a.weight_decay,
                   a.milestones, a.gamma, a.train_examples, a.test_examples)
-        momentum = 0.0 if a.protocol in {PLAIN_PROTOCOL, LANDSCAPE_PROTOCOL} else .9
-        if frozen != (160, 128, .01, momentum, .001, [80, 120], .1, 50000, 10000):
+        momentum = a.momentum if a.protocol == MANIFOLD_PROTOCOL else (0.0 if a.protocol in {PLAIN_PROTOCOL, LANDSCAPE_PROTOCOL} else .9)
+        decay = 0.0 if a.protocol == MANIFOLD_PROTOCOL else .001
+        if frozen != (160, 128, .01, momentum, decay, [80, 120], .1, 50000, 10000):
             p.error("scientific runs must use the frozen paper reconstruction recipe")
     scientific = {k: v for k, v in vars(a).items() if k not in RUNTIME}
     actual = hashlib.sha256(json.dumps(scientific, sort_keys=True, allow_nan=False).encode()).hexdigest()
@@ -98,17 +114,27 @@ def parse_args(argv=None):
 
 def expand_config(config):
     fields = FIELDS | ({"landscape"} if config.get("protocol") in LANDSCAPE_PROTOCOLS else set())
+    manifold = config.get("protocol") == MANIFOLD_PROTOCOL
+    if manifold:
+        fields = (fields - {"momentum"}) | {"momentums"} | MANIFOLD_FIELDS
     if set(config) != fields or config["protocol"] not in {PROTOCOL, PLAIN_PROTOCOL, *LANDSCAPE_PROTOCOLS}:
         raise ValueError("invalid PURe config fields or protocol")
     seeds = config["seeds"]
     if not isinstance(seeds, list) or not seeds or len(set(seeds)) != len(seeds):
         raise ValueError("seeds must be a nonempty unique list")
     commands = []
-    for seed in seeds:
-        values = {k: v for k, v in config.items() if k not in {"seeds", "data_seed_offset"}}
+    momentums = config.get("momentums", [config.get("momentum")])
+    if manifold and momentums != [.95, 0.0]:
+        raise ValueError("Manifold plan requires the paired momentums [.95, 0.0]")
+    for seed, momentum in ((s, m) for s in seeds for m in momentums):
+        values = {k: v for k, v in config.items() if k not in {"seeds", "data_seed_offset", "momentums"}}
+        if manifold:
+            values["momentum"] = momentum
         optimizer_label = ("plain-sgd-landscape" if config["protocol"] == LANDSCAPE_PROTOCOL else
                            "momentum-sgd-landscape" if config["protocol"] == MOMENTUM_LANDSCAPE_PROTOCOL else
                            "plain-sgd" if config["protocol"] == PLAIN_PROTOCOL else "sgd")
+        if manifold:
+            optimizer_label = f"manifold-da10-momentum{momentum:g}"
         values.update(seed=seed, data_seed=seed + config["data_seed_offset"],
                       run_name=f"pure-resnet18-cifar10-{optimizer_label}-seed{seed}")
         command = ["python", "-m", "optimizer_resurrection.pure_cifar"]
@@ -156,8 +182,11 @@ def make_loaders(args):
 
 
 def all_finite(tensors):
-    values = [torch.isfinite(t.detach()).all() for t in tensors]
-    return not values or bool(torch.stack(values).all())
+    # AdamW keeps scalar step counters on CPU even when weights live on CUDA.
+    by_device = {}
+    for tensor in tensors:
+        by_device.setdefault(tensor.device, []).append(torch.isfinite(tensor.detach()).all())
+    return all(bool(torch.stack(values).all()) for values in by_device.values())
 
 
 @torch.no_grad()
@@ -235,17 +264,25 @@ def run_trial(args, on_epoch=None, loaders=None, model_factory=None, landscape_p
     torch.manual_seed(metadata["augmentation_seed"])
     random.seed(metadata["augmentation_seed"])
     np.random.seed(metadata["augmentation_seed"] % 2**32)
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate,
-                               momentum=args.momentum, weight_decay=args.weight_decay,
-                               dampening=0, nesterov=False)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, args.milestones, gamma=args.gamma)
+    optimizer_metadata = {}
+    if args.protocol == MANIFOLD_PROTOCOL:
+        from .pure_manifold import build_manifold_optimizer
+        optimizer, optimizer_metadata = build_manifold_optimizer(model, args)
+        optimizers = optimizer.optimizers
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate,
+                                   momentum=args.momentum, weight_decay=args.weight_decay,
+                                   dampening=0, nesterov=False)
+        optimizers = [optimizer]
+    schedulers = [torch.optim.lr_scheduler.MultiStepLR(opt, args.milestones, gamma=args.gamma)
+                  for opt in optimizers]
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
     start = time.perf_counter()
     completed, failure, failed_epoch = 0, None, None
     result = {**metadata, "parameter_count": count,
-              "initialization_digest": initialization.hexdigest()}
+              "initialization_digest": initialization.hexdigest(), **optimizer_metadata}
     diagnostics = None
     diagnostic_seconds, diagnostic_batches, diagnostic_epochs = 0.0, 0, []
     diagnostic_manifest = []
@@ -268,6 +305,8 @@ def run_trial(args, on_epoch=None, loaders=None, model_factory=None, landscape_p
     for epoch in range(1, args.epochs + 1):
         epoch_start = time.perf_counter()
         model.train()
+        if args.protocol == MANIFOLD_PROTOCOL:
+            optimizer.begin_epoch()
         if diagnostics:
             diagnostics.begin_epoch(epoch)
         total, correct, loss_sum = 0, 0, 0.0
@@ -288,7 +327,12 @@ def run_trial(args, on_epoch=None, loaders=None, model_factory=None, landscape_p
                 diagnostic_start = time.perf_counter()
                 diagnostics.before_step()
                 diagnostic_seconds += time.perf_counter() - diagnostic_start
-            optimizer.step()
+            try:
+                optimizer.step()
+            except (torch.linalg.LinAlgError, FloatingPointError) as exc:
+                failure = "manifold_optimizer_numerical_failure"
+                result["optimizer_failure_detail"] = str(exc)
+                break
             if diagnostics:
                 diagnostic_start = time.perf_counter()
                 diagnostics.after_step()
@@ -322,6 +366,8 @@ def run_trial(args, on_epoch=None, loaders=None, model_factory=None, landscape_p
         record = {"epoch": epoch, "train_loss": loss_sum / total, "train_accuracy": correct / total,
                   "learning_rate": lr, "train_examples_seen": total, "thresholds": thresholds,
                   "epoch_seconds": time.perf_counter() - epoch_start}
+        if args.protocol == MANIFOLD_PROTOCOL:
+            record.update(optimizer.epoch_metrics())
         result.update({k: v for k, v in record.items() if k != "thresholds"})
         if diagnostics:
             diagnostic_start = time.perf_counter()
@@ -335,7 +381,8 @@ def run_trial(args, on_epoch=None, loaders=None, model_factory=None, landscape_p
             diagnostic_seconds += time.perf_counter() - diagnostic_start
         if on_epoch:
             on_epoch(record)
-        scheduler.step()
+        for scheduler in schedulers:
+            scheduler.step()
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     result["training_seconds"] = time.perf_counter() - start
@@ -391,6 +438,13 @@ def main(argv=None):
         "evaluation": "final model only; official test set once; no validation split",
         "precision": "FP32; no AMP/TF32", "gradient_clipping": False,
         "tuning_budget": 0, "optimizer": "SGD all parameters; dampening=0; nesterov=false"}
+    if args.protocol == MANIFOLD_PROTOCOL:
+        provenance.update(optimizer="existing exact-SVD ManifoldMuon DA-10 on eight product exponent kernels; fixed auxiliary AdamW on all remaining parameters",
+                          initialization="shared Kaiming initialization, then scale-1 Stiefel projection of flattened product exponent filters",
+                          manifold_geometry="each kernel flattened (out_channels, in_channels*height*width); transpose wide matrices for column Stiefel geometry",
+                          auxiliary_recipe="AdamW lr=.001, betas=(.9,.95), eps=1e-8, weight_decay=0; same schedule in both conditions",
+                          momentum_scope="only DA-10 momentum changes; auxiliary AdamW moment estimates remain enabled in both",
+                          comparison_scope="exploratory within projected DA-10 pair; initialization and decay differ from prior SGD")
     if getattr(args, "landscape", False):
         provenance["landscape"] = {
             "version": "pure-landscape-v1", "probe_source": "training set only, no augmentation",
@@ -405,6 +459,9 @@ def main(argv=None):
             "state_restoration": "parameters, buffers, gradients, mode and random-number states",
             "runtime": "training_seconds includes diagnostic overhead; diagnostic_seconds host-times probes and step measurements, excluding activation hooks",
             "limitations": "fixed training subset; local directions and stochastic curvature estimates"}
+        if args.protocol == MANIFOLD_PROTOCOL:
+            provenance["landscape"].update(geometry="ambient Euclidean Hessian and loss slices; perturbations leave the Stiefel constraint; not Riemannian curvature or constrained surface",
+                                           objective="eval-mode cross-entropy; zero decay; effective gradient statistics are raw gradients, not DA-10 directions; actual updates include retraction")
     import wandb
     run = wandb.init(project=credentials["WANDB_PROJECT"], entity=credentials["WANDB_ENTITY"],
                      name=args.run_name, group=args.run_group, mode="online", save_code=False,
@@ -415,8 +472,10 @@ def main(argv=None):
     try:
         result = run_trial(args, lambda record: run.log(record, step=record["epoch"]))
         run.summary.update(result)
-    except BaseException:
+    except BaseException as exc:
         run.summary["terminal_outcome"] = "failed"
+        run.summary["failure_reason"] = type(exc).__name__
+        run.summary["failure_detail"] = str(exc)
         run.finish(exit_code=1)
         raise
     run.finish(exit_code=1 if result["numerical_failure"] else 0)
