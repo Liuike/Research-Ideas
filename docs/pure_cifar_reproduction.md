@@ -657,9 +657,49 @@ the two-row plan was expanded through `experiment plan` from the registered
 config. Scientific results are pending in W&B group
 `pure-cifar10-resnet18-manifold-da10-landscape-v1`.
 
-Both scientific tasks are running on `gpu2709`, with clean source identity
+Both scientific tasks started on `gpu2709`, with clean source identity
 verified online. W&B runs are
 [`8rdy58r0` (momentum 0.95)](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/8rdy58r0)
 and [`pl494eta` (momentum 0)](https://wandb.ai/enyan_zhang1-brown-university/optimizer-resurrection/runs/pl494eta).
 A 45-minute follow-up in this task tracks terminal outcomes and strict
 analysis; it stays quiet while no actionable change occurs.
+
+### Interim numerical failure (October 3)
+
+Momentum 0.95 run `8rdy58r0` terminated after **27 completed epochs**, at
+**epoch 28, batch 63**, with `nonfinite_parameters_or_state`. The check runs
+after the optimizer update and covers parameters, model buffers and tensor
+optimizer state; the exact offending tensor was not recorded. Forward loss
+and raw gradients passed their finite checks beforehand. No final test
+evaluation occurred, so this condition has no final test accuracy or CE.
+Training runtime was 9,256.191 seconds, including diagnostic overhead;
+10,620 gradient minibatches were recorded, including the failing update.
+Slurm recorded `COMPLETED`, exit 0, because the runner returned normally after
+recording the scientific numerical failure; W&B correctly marks it failed.
+Retained logs show no infrastructure failure.
+
+The original seed-0 initialization digest matches the earlier Oscar SGD runs
+(`4b937bf65d6c6aa3038b317686b7571aacd83379e2efa19eb610439f82d0f4c1`),
+as do the full dataset, order/worker/augmentation seeds and fixed probe digest.
+The projected initialization digest is
+`c25ff348458ca1d11e604fde40241e5e8990e8d279eb2fb0cc9ab341a74c7528`.
+Probes at epochs 0 and 1 completed; later probes were not reached. Partial
+epoch-28 DA residual/constraint aggregates were not logged; summary DA values
+retain the last completed epoch. These recording limits are reported rather
+than inferred from the last summary values.
+
+The partial epoch-28 record counted 63/63 finite raw-gradient measurements
+and listed no nonfinite gradient parameter. Global gradient L2 mean/max were
+1.538/2.685, with the maximum at batch 58; effective gradients were identical
+at zero decay. Actual-update L2 aggregates were 0.630/0.725. These aggregates
+do not identify batch 63's offending tensor, and invalid update statistics
+can be omitted. Epoch 27's DA residual mean/max were 0.0140/0.0708, with the
+largest recorded product constraint error 2.07e-4, below the frozen 1e-3 bound.
+First-batch epoch-28 product activations were finite, including a maximum
+output around 3.46e8 in layer4.1; that sample did not observe batch 63.
+
+The momentum-0 run `pl494eta` remains running (epoch 32 at the failure check).
+The frozen recipe is unchanged and the failed condition will not be replaced
+or retried. Strict paired analysis and the final comparison await its terminal
+outcome. This is one numerical failure under the hybrid constrained recipe;
+it does not establish a general momentum effect.
